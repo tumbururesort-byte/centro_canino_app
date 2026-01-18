@@ -1,323 +1,253 @@
+
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+import 'package:drift/drift.dart' as drift;
+import 'data/local/app_database.dart';
+import 'data/clientes_repository.dart';
+import 'data/remote/odoo_service.dart';
 
 void main() {
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({Key? key}) : super(key: key);
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Odoo Clientes',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        useMaterial3: true,
-      ),
+      title: 'Clientes Offline-First',
+      theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
       home: const OdooClientesPage(),
     );
   }
 }
 
 class OdooClientesPage extends StatefulWidget {
-  const OdooClientesPage({Key? key}) : super(key: key);
+  const OdooClientesPage({super.key});
 
   @override
   State<OdooClientesPage> createState() => _OdooClientesPageState();
 }
 
 class _OdooClientesPageState extends State<OdooClientesPage> {
-  final _urlController = TextEditingController(text: 'https://tumburu.es');
-  final _dbController = TextEditingController(text: 'betat1');
-  final _usernameController = TextEditingController(text: 'duvalsoft@gmail.com');
-  final _passwordController = TextEditingController();
-  
-  List<dynamic> clientes = [];
-  bool isLoading = false;
-  String? error;
+  final _url = TextEditingController(text: 'https://tumburu.es');
+  final _db = TextEditingController(text: 'betat1');
+  final _user = TextEditingController(text: 'duvalsoft@gmail.com');
+  final _pass = TextEditingController();
+
   int? userId;
+  bool loading = false;
+  bool syncing = false;
+  String? error;
+  List<Cliente> clientes = [];
+  DateTime? lastSync;
+
+  late ClientesRepository repo;
 
   @override
-  void dispose() {
-    _urlController.dispose();
-    _dbController.dispose();
-    _usernameController.dispose();
-    _passwordController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    repo = ClientesRepository(AppDatabase(), OdooService());
+    _loadLocalClientes();
   }
 
-  Future<void> authenticate() async {
+  Future<void> _loadLocalClientes() async {
+    final local = await repo.getClientesOffline();
+    setState(() => clientes = local);
+  }
+
+  Future<void> login() async {
     setState(() {
-      isLoading = true;
+      loading = true;
       error = null;
     });
 
     try {
-      final url = Uri.parse('${_urlController.text}/xmlrpc/2/common');
-      
-      // Llamada XML-RPC para autenticar (sin user_agent_env para evitar conflicto con website)
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'text/xml',
-        },
-        body: '''<?xml version="1.0"?>
-<methodCall>
-  <methodName>login</methodName>
-  <params>
-    <param><value><string>${_dbController.text}</string></value></param>
-    <param><value><string>${_usernameController.text}</string></value></param>
-    <param><value><string>${_passwordController.text}</string></value></param>
-  </params>
-</methodCall>''',
+      final uid = await repo.remote.authenticate(
+        url: _url.text,
+        db: _db.text,
+        username: _user.text,
+        password: _pass.text,
       );
 
-      print('Status autenticación: ${response.statusCode}');
-      print('Respuesta: ${response.body}');
-
-      if (response.statusCode == 200) {
-        // Parsear respuesta XML
-        final uidMatch = RegExp(r'<int>(\d+)</int>').firstMatch(response.body);
-        
-        if (uidMatch != null) {
-          final uid = int.parse(uidMatch.group(1)!);
-          
-          if (uid > 0) {
-            setState(() {
-              userId = uid;
-            });
-            
-            await fetchClientes();
-          } else {
-            throw Exception('Autenticación fallida: credenciales incorrectas');
-          }
-        } else {
-          // Verificar si hay un fault (error)
-          if (response.body.contains('<fault>')) {
-            throw Exception('Error de autenticación. Verifica tus credenciales.');
-          }
-          throw Exception('Respuesta inesperada del servidor');
-        }
-      } else {
-        throw Exception('Error HTTP: ${response.statusCode}');
-      }
+      setState(() => userId = uid);
+      await syncClientes();
     } catch (e) {
       setState(() {
         error = e.toString();
-        isLoading = false;
+        loading = false;
       });
     }
   }
 
-  Future<void> fetchClientes() async {
+  Future<void> syncClientes() async {
+    setState(() {
+      syncing = true;
+      error = null;
+    });
+
     try {
-      final url = Uri.parse('${_urlController.text}/xmlrpc/2/object');
-      
-      // Llamada XML-RPC para buscar clientes
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'text/xml',
-        },
-        body: '''<?xml version="1.0"?>
-<methodCall>
-  <methodName>execute_kw</methodName>
-  <params>
-    <param><value><string>${_dbController.text}</string></value></param>
-    <param><value><int>$userId</int></value></param>
-    <param><value><string>${_passwordController.text}</string></value></param>
-    <param><value><string>res.partner</string></value></param>
-    <param><value><string>search_read</string></value></param>
-    <param>
-      <value>
-        <array>
-          <data>
-            <value>
-              <array>
-                <data>
-                  <value>
-                    <array>
-                      <data>
-                        <value><string>customer_rank</string></value>
-                        <value><string>&gt;</string></value>
-                        <value><int>0</int></value>
-                      </data>
-                    </array>
-                  </value>
-                </data>
-              </array>
-            </value>
-          </data>
-        </array>
-      </value>
-    </param>
-    <param>
-      <value>
-        <struct>
-          <member>
-            <name>fields</name>
-            <value>
-              <array>
-                <data>
-                  <value><string>name</string></value>
-                  <value><string>email</string></value>
-                  <value><string>phone</string></value>
-                  <value><string>city</string></value>
-                </data>
-              </array>
-            </value>
-          </member>
-          <member>
-            <name>limit</name>
-            <value><int>50</int></value>
-          </member>
-        </struct>
-      </value>
-    </param>
-  </params>
-</methodCall>''',
+      await repo.syncClientes(
+        url: _url.text,
+        dbName: _db.text,
+        userId: userId!,
+        password: _pass.text,
       );
 
-      print('Respuesta status: ${response.statusCode}');
-
-      if (response.statusCode == 200) {
-        // Parsear XML manualmente para extraer los clientes
-        final clientesList = _parseXmlClientes(response.body);
-        
-        setState(() {
-          clientes = clientesList;
-          isLoading = false;
-        });
-      } else {
-        throw Exception('Error HTTP: ${response.statusCode}');
-      }
+      setState(() => lastSync = DateTime.now());
+      await _loadLocalClientes();
     } catch (e) {
+      setState(() => error = e.toString());
+    } finally {
       setState(() {
-        error = e.toString();
-        isLoading = false;
+        syncing = false;
+        loading = false;
       });
     }
   }
 
-  List<Map<String, dynamic>> _parseXmlClientes(String xml) {
-    final List<Map<String, dynamic>> result = [];
-    
-    // Extraer cada struct que representa un cliente
-    final structRegex = RegExp(r'<struct>(.*?)</struct>', dotAll: true);
-    final structs = structRegex.allMatches(xml);
-    
-    for (var structMatch in structs) {
-      final structContent = structMatch.group(1)!;
-      final Map<String, dynamic> cliente = {};
-      
-      // Extraer cada member (campo)
-      final memberRegex = RegExp(
-        r'<member>\s*<name>(.*?)</name>\s*<value>(?:<string>(.*?)</string>|<int>(.*?)</int>|<boolean>(.*?)</boolean>)',
-        dotAll: true,
-      );
-      
-      final members = memberRegex.allMatches(structContent);
-      
-      for (var member in members) {
-        final name = member.group(1)!;
-        final stringValue = member.group(2);
-        final intValue = member.group(3);
-        final boolValue = member.group(4);
-        
-        if (stringValue != null) {
-          cliente[name] = stringValue;
-        } else if (intValue != null) {
-          cliente[name] = int.parse(intValue);
-        } else if (boolValue != null) {
-          cliente[name] = boolValue == '1';
-        }
-      }
-      
-      if (cliente.isNotEmpty) {
-        result.add(cliente);
-      }
+  Future<void> _showClienteDialog({Cliente? cliente}) async {
+    final nameController = TextEditingController(text: cliente?.name);
+    final emailController = TextEditingController(text: cliente?.email);
+    final phoneController = TextEditingController(text: cliente?.phone);
+    final cityController = TextEditingController(text: cliente?.city);
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(cliente == null ? 'Nuevo Cliente' : 'Editar Cliente'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Nombre *')),
+            TextField(controller: emailController, decoration: const InputDecoration(labelText: 'Email')),
+            TextField(controller: phoneController, decoration: const InputDecoration(labelText: 'Teléfono')),
+            TextField(controller: cityController, decoration: const InputDecoration(labelText: 'Ciudad')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              if (nameController.text.trim().isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('El nombre es obligatorio')),
+                );
+                return;
+              }
+
+              if (cliente == null) {
+                await repo.createCliente(
+                  nameController.text.trim(),
+                  email: emailController.text.trim().isEmpty ? null : emailController.text.trim(),
+                  phone: phoneController.text.trim().isEmpty ? null : phoneController.text.trim(),
+                  city: cityController.text.trim().isEmpty ? null : cityController.text.trim(),
+                );
+              } else {
+                await repo.updateCliente(
+                  cliente.id,
+                  name: nameController.text.trim(),
+                  email: emailController.text.trim().isEmpty ? null : emailController.text.trim(),
+                  phone: phoneController.text.trim().isEmpty ? null : phoneController.text.trim(),
+                  city: cityController.text.trim().isEmpty ? null : cityController.text.trim(),
+                );
+              }
+
+              await _loadLocalClientes();
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteCliente(Cliente cliente) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirmar'),
+        content: Text('¿Eliminar "${cliente.name}"?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await repo.deleteCliente(cliente);
+      await _loadLocalClientes();
     }
-    
-    return result;
   }
 
   @override
   Widget build(BuildContext context) {
+    final pendingCount = clientes.where((c) => c.pendingSync).length;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Odoo - Clientes'),
-        elevation: 2,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Clientes Offline-First'),
+            if (lastSync != null)
+              Text('Última sync: ${_formatTime(lastSync!)}', style: const TextStyle(fontSize: 12)),
+          ],
+        ),
+        actions: [
+          if (pendingCount > 0)
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Chip(label: Text('$pendingCount pendientes'), backgroundColor: Colors.orange),
+            ),
+          if (userId != null)
+            IconButton(
+              icon: syncing
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.sync),
+              onPressed: syncing ? null : syncClientes,
+            ),
+        ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (userId == null) ...[
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(16.0),
+                  padding: const EdgeInsets.all(16),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Conexión Odoo (XML-RPC)',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _urlController,
-                        decoration: const InputDecoration(
-                          labelText: 'URL de Odoo',
-                          hintText: 'https://tu-instancia.odoo.com',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
+                      const Text('Configuración Odoo', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 12),
+                      TextField(controller: _url, decoration: const InputDecoration(labelText: 'URL', border: OutlineInputBorder())),
+                      const SizedBox(height: 8),
+                      TextField(controller: _db, decoration: const InputDecoration(labelText: 'Base de datos', border: OutlineInputBorder())),
+                      const SizedBox(height: 8),
+                      TextField(controller: _user, decoration: const InputDecoration(labelText: 'Usuario', border: OutlineInputBorder())),
+                      const SizedBox(height: 8),
                       TextField(
-                        controller: _dbController,
-                        decoration: const InputDecoration(
-                          labelText: 'Base de datos',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _usernameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Usuario',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _passwordController,
+                        controller: _pass,
                         obscureText: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Contraseña',
-                          border: OutlineInputBorder(),
-                        ),
-                        onSubmitted: (_) => authenticate(),
+                        decoration: const InputDecoration(labelText: 'Contraseña', border: OutlineInputBorder()),
+                        onSubmitted: (_) => login(),
                       ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: isLoading ? null : authenticate,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.all(16),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: loading ? null : login,
+                          child: loading
+                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Text('Conectar y Sincronizar'),
                         ),
-                        child: isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Text('Conectar'),
                       ),
                     ],
                   ),
@@ -326,103 +256,102 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
             ] else ...[
               Card(
                 color: Colors.green.shade50,
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.check_circle, color: Colors.green),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text('Conectado (User ID: $userId)'),
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          setState(() {
-                            userId = null;
-                            clientes = [];
-                          });
-                        },
-                        child: const Text('Desconectar'),
-                      ),
-                    ],
-                  ),
+                child: ListTile(
+                  leading: const Icon(Icons.cloud_done, color: Colors.green),
+                  title: Text('Conectado (UID: $userId)'),
+                  trailing: TextButton(onPressed: () => setState(() => userId = null), child: const Text('Desconectar')),
                 ),
               ),
-              const SizedBox(height: 16),
-              if (isLoading)
-                const Center(child: CircularProgressIndicator())
-              else if (clientes.isNotEmpty) ...[
-                Text(
-                  'Clientes (${clientes.length})',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                ...clientes.map((cliente) {
-                  final name = cliente['name'] ?? 'Sin nombre';
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?'),
-                      ),
-                      title: Text(name),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (cliente['email'] != null && cliente['email'] != false)
-                            Text('📧 ${cliente['email']}'),
-                          if (cliente['phone'] != null && cliente['phone'] != false)
-                            Text('📞 ${cliente['phone']}'),
-                          if (cliente['city'] != null && cliente['city'] != false)
-                            Text('📍 ${cliente['city']}'),
-                        ],
-                      ),
-                      isThreeLine: true,
-                    ),
-                  );
-                }).toList(),
-              ] else ...[
-                const Card(
-                  child: Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: Text('No se encontraron clientes'),
-                  ),
-                ),
-              ],
             ],
             if (error != null)
               Card(
                 color: Colors.red.shade50,
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Row(
+                child: ListTile(
+                  leading: const Icon(Icons.error, color: Colors.red),
+                  title: const Text('Error'),
+                  subtitle: Text(error!),
+                  trailing: IconButton(icon: const Icon(Icons.close), onPressed: () => setState(() => error = null)),
+                ),
+              ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: clientes.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.error, color: Colors.red),
-                          SizedBox(width: 8),
+                          Icon(Icons.people_outline, size: 64, color: Colors.grey.shade400),
+                          const SizedBox(height: 16),
+                          Text('No hay clientes', style: TextStyle(fontSize: 18, color: Colors.grey.shade600)),
+                          const SizedBox(height: 8),
                           Text(
-                            'Error',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.red,
-                            ),
+                            userId == null ? 'Conecta para sincronizar\no crea uno nuevo' : 'Crea tu primer cliente',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.grey.shade500),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      Text(error!),
-                    ],
-                  ),
-                ),
-              ),
+                    )
+                  : ListView.builder(
+                      itemCount: clientes.length,
+                      itemBuilder: (context, i) {
+                        final c = clientes[i];
+                        return Card(
+                          color: c.pendingSync ? Colors.orange.shade50 : null,
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: c.pendingSync ? Colors.orange : Colors.blue,
+                              child: Text(c.name[0].toUpperCase(), style: const TextStyle(color: Colors.white)),
+                            ),
+                            title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w500)),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (c.email != null) Text('📧 ${c.email}'),
+                                if (c.phone != null) Text('📞 ${c.phone}'),
+                                if (c.city != null) Text('📍 ${c.city}'),
+                                const SizedBox(height: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(4)),
+                                  child: Text(
+                                    'ID Local: ${c.id} | ID Odoo: ${c.odooId ?? "pendiente"}',
+                                    style: TextStyle(fontSize: 10, color: Colors.grey.shade700, fontFamily: 'monospace'),
+                                  ),
+                                ),
+                                if (c.pendingSync)
+                                  const Padding(
+                                    padding: EdgeInsets.only(top: 4),
+                                    child: Text('⏳ Pendiente de sincronización',
+                                        style: TextStyle(fontSize: 11, color: Colors.orange, fontWeight: FontWeight.bold)),
+                                  ),
+                              ],
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(icon: const Icon(Icons.edit, size: 20), onPressed: () => _showClienteDialog(cliente: c)),
+                                IconButton(icon: const Icon(Icons.delete, size: 20, color: Colors.red), onPressed: () => _deleteCliente(c)),
+                              ],
+                            ),
+                            isThreeLine: true,
+                          ),
+                        );
+                      },
+                    ),
+            ),
           ],
         ),
       ),
+      floatingActionButton: FloatingActionButton(onPressed: () => _showClienteDialog(), child: const Icon(Icons.add)),
     );
+  }
+
+  String _formatTime(DateTime time) {
+    final diff = DateTime.now().difference(time);
+    if (diff.inMinutes < 1) return 'hace ${diff.inSeconds}s';
+    if (diff.inHours < 1) return 'hace ${diff.inMinutes}m';
+    if (diff.inDays < 1) return 'hace ${diff.inHours}h';
+    return 'hace ${diff.inDays}d';
   }
 }

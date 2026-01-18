@@ -1,0 +1,1924 @@
+tree is not installed, but available in the following packages, pick one to run it, Ctrl+C to cancel.
+
+
+================ FILE CONTENT ================
+
+
+
+===== FILE: lib/data/local/connection/unsupported.dart =====
+
+import 'package:drift/drift.dart';
+
+LazyDatabase openConnection() =>
+    throw UnsupportedError('No suitable database implementation was found on this platform.');
+
+===== FILE: lib/data/local/connection/mobile.dart =====
+
+import 'dart:io';
+import 'package:drift/drift.dart';
+import 'package:drift/native.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
+
+LazyDatabase openConnection() {
+  return LazyDatabase(() async {
+    final dbFolder = await getApplicationDocumentsDirectory();
+    final file = File(p.join(dbFolder.path, 'clientes.sqlite'));
+    return NativeDatabase(file);
+  });
+}
+
+===== FILE: lib/data/local/connection/web.dart =====
+
+import 'package:drift/drift.dart';
+import 'package:drift/wasm.dart';
+
+QueryExecutor openConnection() {
+  return DatabaseConnection.delayed(
+    Future(() async {
+      final db = await WasmDatabase.open(
+        databaseName: 'clientes_db',
+        sqlite3Uri: Uri.parse('sqlite3.wasm'),
+        driftWorkerUri: Uri.parse('drift_worker.js'),
+      );
+
+      if (db.missingFeatures.isNotEmpty) {
+        // Depending on your app, you may want to show a message to the user
+        // on unsupported features.
+      }
+
+      return db.resolvedExecutor;
+    }),
+  );
+}
+
+
+===== FILE: lib/data/local/clientes_table.dart =====
+
+import 'package:drift/drift.dart';
+
+class Clientes extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get odooId => integer().nullable()(); // ID remoto
+  TextColumn get name => text()();
+  TextColumn get email => text().nullable()();
+  TextColumn get phone => text().nullable()();
+  TextColumn get city => text().nullable()();
+  BoolColumn get pendingSync => boolean().withDefault(const Constant(false))();
+  BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get lastSync => dateTime().nullable()();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
+}
+
+===== FILE: lib/data/local/app_database.g.dart =====
+
+// GENERATED CODE - DO NOT MODIFY BY HAND
+
+part of 'app_database.dart';
+
+// ignore_for_file: type=lint
+class $ClientesTable extends Clientes with TableInfo<$ClientesTable, Cliente> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ClientesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _odooIdMeta = const VerificationMeta('odooId');
+  @override
+  late final GeneratedColumn<int> odooId = GeneratedColumn<int>(
+    'odoo_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _emailMeta = const VerificationMeta('email');
+  @override
+  late final GeneratedColumn<String> email = GeneratedColumn<String>(
+    'email',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _phoneMeta = const VerificationMeta('phone');
+  @override
+  late final GeneratedColumn<String> phone = GeneratedColumn<String>(
+    'phone',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _cityMeta = const VerificationMeta('city');
+  @override
+  late final GeneratedColumn<String> city = GeneratedColumn<String>(
+    'city',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _pendingSyncMeta = const VerificationMeta(
+    'pendingSync',
+  );
+  @override
+  late final GeneratedColumn<bool> pendingSync = GeneratedColumn<bool>(
+    'pending_sync',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("pending_sync" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _isDeletedMeta = const VerificationMeta(
+    'isDeleted',
+  );
+  @override
+  late final GeneratedColumn<bool> isDeleted = GeneratedColumn<bool>(
+    'is_deleted',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_deleted" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _lastSyncMeta = const VerificationMeta(
+    'lastSync',
+  );
+  @override
+  late final GeneratedColumn<DateTime> lastSync = GeneratedColumn<DateTime>(
+    'last_sync',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    odooId,
+    name,
+    email,
+    phone,
+    city,
+    pendingSync,
+    isDeleted,
+    lastSync,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'clientes';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<Cliente> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('odoo_id')) {
+      context.handle(
+        _odooIdMeta,
+        odooId.isAcceptableOrUnknown(data['odoo_id']!, _odooIdMeta),
+      );
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('email')) {
+      context.handle(
+        _emailMeta,
+        email.isAcceptableOrUnknown(data['email']!, _emailMeta),
+      );
+    }
+    if (data.containsKey('phone')) {
+      context.handle(
+        _phoneMeta,
+        phone.isAcceptableOrUnknown(data['phone']!, _phoneMeta),
+      );
+    }
+    if (data.containsKey('city')) {
+      context.handle(
+        _cityMeta,
+        city.isAcceptableOrUnknown(data['city']!, _cityMeta),
+      );
+    }
+    if (data.containsKey('pending_sync')) {
+      context.handle(
+        _pendingSyncMeta,
+        pendingSync.isAcceptableOrUnknown(
+          data['pending_sync']!,
+          _pendingSyncMeta,
+        ),
+      );
+    }
+    if (data.containsKey('is_deleted')) {
+      context.handle(
+        _isDeletedMeta,
+        isDeleted.isAcceptableOrUnknown(data['is_deleted']!, _isDeletedMeta),
+      );
+    }
+    if (data.containsKey('last_sync')) {
+      context.handle(
+        _lastSyncMeta,
+        lastSync.isAcceptableOrUnknown(data['last_sync']!, _lastSyncMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  Cliente map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return Cliente(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      odooId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}odoo_id'],
+      ),
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      email: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}email'],
+      ),
+      phone: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}phone'],
+      ),
+      city: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}city'],
+      ),
+      pendingSync: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}pending_sync'],
+      )!,
+      isDeleted: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_deleted'],
+      )!,
+      lastSync: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}last_sync'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $ClientesTable createAlias(String alias) {
+    return $ClientesTable(attachedDatabase, alias);
+  }
+}
+
+class Cliente extends DataClass implements Insertable<Cliente> {
+  final int id;
+  final int? odooId;
+  final String name;
+  final String? email;
+  final String? phone;
+  final String? city;
+  final bool pendingSync;
+  final bool isDeleted;
+  final DateTime? lastSync;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const Cliente({
+    required this.id,
+    this.odooId,
+    required this.name,
+    this.email,
+    this.phone,
+    this.city,
+    required this.pendingSync,
+    required this.isDeleted,
+    this.lastSync,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    if (!nullToAbsent || odooId != null) {
+      map['odoo_id'] = Variable<int>(odooId);
+    }
+    map['name'] = Variable<String>(name);
+    if (!nullToAbsent || email != null) {
+      map['email'] = Variable<String>(email);
+    }
+    if (!nullToAbsent || phone != null) {
+      map['phone'] = Variable<String>(phone);
+    }
+    if (!nullToAbsent || city != null) {
+      map['city'] = Variable<String>(city);
+    }
+    map['pending_sync'] = Variable<bool>(pendingSync);
+    map['is_deleted'] = Variable<bool>(isDeleted);
+    if (!nullToAbsent || lastSync != null) {
+      map['last_sync'] = Variable<DateTime>(lastSync);
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  ClientesCompanion toCompanion(bool nullToAbsent) {
+    return ClientesCompanion(
+      id: Value(id),
+      odooId: odooId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(odooId),
+      name: Value(name),
+      email: email == null && nullToAbsent
+          ? const Value.absent()
+          : Value(email),
+      phone: phone == null && nullToAbsent
+          ? const Value.absent()
+          : Value(phone),
+      city: city == null && nullToAbsent ? const Value.absent() : Value(city),
+      pendingSync: Value(pendingSync),
+      isDeleted: Value(isDeleted),
+      lastSync: lastSync == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastSync),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory Cliente.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return Cliente(
+      id: serializer.fromJson<int>(json['id']),
+      odooId: serializer.fromJson<int?>(json['odooId']),
+      name: serializer.fromJson<String>(json['name']),
+      email: serializer.fromJson<String?>(json['email']),
+      phone: serializer.fromJson<String?>(json['phone']),
+      city: serializer.fromJson<String?>(json['city']),
+      pendingSync: serializer.fromJson<bool>(json['pendingSync']),
+      isDeleted: serializer.fromJson<bool>(json['isDeleted']),
+      lastSync: serializer.fromJson<DateTime?>(json['lastSync']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'odooId': serializer.toJson<int?>(odooId),
+      'name': serializer.toJson<String>(name),
+      'email': serializer.toJson<String?>(email),
+      'phone': serializer.toJson<String?>(phone),
+      'city': serializer.toJson<String?>(city),
+      'pendingSync': serializer.toJson<bool>(pendingSync),
+      'isDeleted': serializer.toJson<bool>(isDeleted),
+      'lastSync': serializer.toJson<DateTime?>(lastSync),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  Cliente copyWith({
+    int? id,
+    Value<int?> odooId = const Value.absent(),
+    String? name,
+    Value<String?> email = const Value.absent(),
+    Value<String?> phone = const Value.absent(),
+    Value<String?> city = const Value.absent(),
+    bool? pendingSync,
+    bool? isDeleted,
+    Value<DateTime?> lastSync = const Value.absent(),
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) => Cliente(
+    id: id ?? this.id,
+    odooId: odooId.present ? odooId.value : this.odooId,
+    name: name ?? this.name,
+    email: email.present ? email.value : this.email,
+    phone: phone.present ? phone.value : this.phone,
+    city: city.present ? city.value : this.city,
+    pendingSync: pendingSync ?? this.pendingSync,
+    isDeleted: isDeleted ?? this.isDeleted,
+    lastSync: lastSync.present ? lastSync.value : this.lastSync,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  Cliente copyWithCompanion(ClientesCompanion data) {
+    return Cliente(
+      id: data.id.present ? data.id.value : this.id,
+      odooId: data.odooId.present ? data.odooId.value : this.odooId,
+      name: data.name.present ? data.name.value : this.name,
+      email: data.email.present ? data.email.value : this.email,
+      phone: data.phone.present ? data.phone.value : this.phone,
+      city: data.city.present ? data.city.value : this.city,
+      pendingSync: data.pendingSync.present
+          ? data.pendingSync.value
+          : this.pendingSync,
+      isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
+      lastSync: data.lastSync.present ? data.lastSync.value : this.lastSync,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('Cliente(')
+          ..write('id: $id, ')
+          ..write('odooId: $odooId, ')
+          ..write('name: $name, ')
+          ..write('email: $email, ')
+          ..write('phone: $phone, ')
+          ..write('city: $city, ')
+          ..write('pendingSync: $pendingSync, ')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('lastSync: $lastSync, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    odooId,
+    name,
+    email,
+    phone,
+    city,
+    pendingSync,
+    isDeleted,
+    lastSync,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is Cliente &&
+          other.id == this.id &&
+          other.odooId == this.odooId &&
+          other.name == this.name &&
+          other.email == this.email &&
+          other.phone == this.phone &&
+          other.city == this.city &&
+          other.pendingSync == this.pendingSync &&
+          other.isDeleted == this.isDeleted &&
+          other.lastSync == this.lastSync &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class ClientesCompanion extends UpdateCompanion<Cliente> {
+  final Value<int> id;
+  final Value<int?> odooId;
+  final Value<String> name;
+  final Value<String?> email;
+  final Value<String?> phone;
+  final Value<String?> city;
+  final Value<bool> pendingSync;
+  final Value<bool> isDeleted;
+  final Value<DateTime?> lastSync;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  const ClientesCompanion({
+    this.id = const Value.absent(),
+    this.odooId = const Value.absent(),
+    this.name = const Value.absent(),
+    this.email = const Value.absent(),
+    this.phone = const Value.absent(),
+    this.city = const Value.absent(),
+    this.pendingSync = const Value.absent(),
+    this.isDeleted = const Value.absent(),
+    this.lastSync = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  });
+  ClientesCompanion.insert({
+    this.id = const Value.absent(),
+    this.odooId = const Value.absent(),
+    required String name,
+    this.email = const Value.absent(),
+    this.phone = const Value.absent(),
+    this.city = const Value.absent(),
+    this.pendingSync = const Value.absent(),
+    this.isDeleted = const Value.absent(),
+    this.lastSync = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  }) : name = Value(name);
+  static Insertable<Cliente> custom({
+    Expression<int>? id,
+    Expression<int>? odooId,
+    Expression<String>? name,
+    Expression<String>? email,
+    Expression<String>? phone,
+    Expression<String>? city,
+    Expression<bool>? pendingSync,
+    Expression<bool>? isDeleted,
+    Expression<DateTime>? lastSync,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (odooId != null) 'odoo_id': odooId,
+      if (name != null) 'name': name,
+      if (email != null) 'email': email,
+      if (phone != null) 'phone': phone,
+      if (city != null) 'city': city,
+      if (pendingSync != null) 'pending_sync': pendingSync,
+      if (isDeleted != null) 'is_deleted': isDeleted,
+      if (lastSync != null) 'last_sync': lastSync,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+    });
+  }
+
+  ClientesCompanion copyWith({
+    Value<int>? id,
+    Value<int?>? odooId,
+    Value<String>? name,
+    Value<String?>? email,
+    Value<String?>? phone,
+    Value<String?>? city,
+    Value<bool>? pendingSync,
+    Value<bool>? isDeleted,
+    Value<DateTime?>? lastSync,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+  }) {
+    return ClientesCompanion(
+      id: id ?? this.id,
+      odooId: odooId ?? this.odooId,
+      name: name ?? this.name,
+      email: email ?? this.email,
+      phone: phone ?? this.phone,
+      city: city ?? this.city,
+      pendingSync: pendingSync ?? this.pendingSync,
+      isDeleted: isDeleted ?? this.isDeleted,
+      lastSync: lastSync ?? this.lastSync,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (odooId.present) {
+      map['odoo_id'] = Variable<int>(odooId.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (email.present) {
+      map['email'] = Variable<String>(email.value);
+    }
+    if (phone.present) {
+      map['phone'] = Variable<String>(phone.value);
+    }
+    if (city.present) {
+      map['city'] = Variable<String>(city.value);
+    }
+    if (pendingSync.present) {
+      map['pending_sync'] = Variable<bool>(pendingSync.value);
+    }
+    if (isDeleted.present) {
+      map['is_deleted'] = Variable<bool>(isDeleted.value);
+    }
+    if (lastSync.present) {
+      map['last_sync'] = Variable<DateTime>(lastSync.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ClientesCompanion(')
+          ..write('id: $id, ')
+          ..write('odooId: $odooId, ')
+          ..write('name: $name, ')
+          ..write('email: $email, ')
+          ..write('phone: $phone, ')
+          ..write('city: $city, ')
+          ..write('pendingSync: $pendingSync, ')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('lastSync: $lastSync, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
+abstract class _$AppDatabase extends GeneratedDatabase {
+  _$AppDatabase(QueryExecutor e) : super(e);
+  $AppDatabaseManager get managers => $AppDatabaseManager(this);
+  late final $ClientesTable clientes = $ClientesTable(this);
+  @override
+  Iterable<TableInfo<Table, Object?>> get allTables =>
+      allSchemaEntities.whereType<TableInfo<Table, Object?>>();
+  @override
+  List<DatabaseSchemaEntity> get allSchemaEntities => [clientes];
+}
+
+typedef $$ClientesTableCreateCompanionBuilder =
+    ClientesCompanion Function({
+      Value<int> id,
+      Value<int?> odooId,
+      required String name,
+      Value<String?> email,
+      Value<String?> phone,
+      Value<String?> city,
+      Value<bool> pendingSync,
+      Value<bool> isDeleted,
+      Value<DateTime?> lastSync,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+    });
+typedef $$ClientesTableUpdateCompanionBuilder =
+    ClientesCompanion Function({
+      Value<int> id,
+      Value<int?> odooId,
+      Value<String> name,
+      Value<String?> email,
+      Value<String?> phone,
+      Value<String?> city,
+      Value<bool> pendingSync,
+      Value<bool> isDeleted,
+      Value<DateTime?> lastSync,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+    });
+
+class $$ClientesTableFilterComposer
+    extends Composer<_$AppDatabase, $ClientesTable> {
+  $$ClientesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get odooId => $composableBuilder(
+    column: $table.odooId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get email => $composableBuilder(
+    column: $table.email,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get phone => $composableBuilder(
+    column: $table.phone,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get city => $composableBuilder(
+    column: $table.city,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get pendingSync => $composableBuilder(
+    column: $table.pendingSync,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isDeleted => $composableBuilder(
+    column: $table.isDeleted,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get lastSync => $composableBuilder(
+    column: $table.lastSync,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$ClientesTableOrderingComposer
+    extends Composer<_$AppDatabase, $ClientesTable> {
+  $$ClientesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get odooId => $composableBuilder(
+    column: $table.odooId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get email => $composableBuilder(
+    column: $table.email,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get phone => $composableBuilder(
+    column: $table.phone,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get city => $composableBuilder(
+    column: $table.city,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get pendingSync => $composableBuilder(
+    column: $table.pendingSync,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isDeleted => $composableBuilder(
+    column: $table.isDeleted,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get lastSync => $composableBuilder(
+    column: $table.lastSync,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ClientesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ClientesTable> {
+  $$ClientesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get odooId =>
+      $composableBuilder(column: $table.odooId, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get email =>
+      $composableBuilder(column: $table.email, builder: (column) => column);
+
+  GeneratedColumn<String> get phone =>
+      $composableBuilder(column: $table.phone, builder: (column) => column);
+
+  GeneratedColumn<String> get city =>
+      $composableBuilder(column: $table.city, builder: (column) => column);
+
+  GeneratedColumn<bool> get pendingSync => $composableBuilder(
+    column: $table.pendingSync,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get isDeleted =>
+      $composableBuilder(column: $table.isDeleted, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get lastSync =>
+      $composableBuilder(column: $table.lastSync, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$ClientesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $ClientesTable,
+          Cliente,
+          $$ClientesTableFilterComposer,
+          $$ClientesTableOrderingComposer,
+          $$ClientesTableAnnotationComposer,
+          $$ClientesTableCreateCompanionBuilder,
+          $$ClientesTableUpdateCompanionBuilder,
+          (Cliente, BaseReferences<_$AppDatabase, $ClientesTable, Cliente>),
+          Cliente,
+          PrefetchHooks Function()
+        > {
+  $$ClientesTableTableManager(_$AppDatabase db, $ClientesTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ClientesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ClientesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ClientesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int?> odooId = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String?> email = const Value.absent(),
+                Value<String?> phone = const Value.absent(),
+                Value<String?> city = const Value.absent(),
+                Value<bool> pendingSync = const Value.absent(),
+                Value<bool> isDeleted = const Value.absent(),
+                Value<DateTime?> lastSync = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+              }) => ClientesCompanion(
+                id: id,
+                odooId: odooId,
+                name: name,
+                email: email,
+                phone: phone,
+                city: city,
+                pendingSync: pendingSync,
+                isDeleted: isDeleted,
+                lastSync: lastSync,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int?> odooId = const Value.absent(),
+                required String name,
+                Value<String?> email = const Value.absent(),
+                Value<String?> phone = const Value.absent(),
+                Value<String?> city = const Value.absent(),
+                Value<bool> pendingSync = const Value.absent(),
+                Value<bool> isDeleted = const Value.absent(),
+                Value<DateTime?> lastSync = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+              }) => ClientesCompanion.insert(
+                id: id,
+                odooId: odooId,
+                name: name,
+                email: email,
+                phone: phone,
+                city: city,
+                pendingSync: pendingSync,
+                isDeleted: isDeleted,
+                lastSync: lastSync,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ClientesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $ClientesTable,
+      Cliente,
+      $$ClientesTableFilterComposer,
+      $$ClientesTableOrderingComposer,
+      $$ClientesTableAnnotationComposer,
+      $$ClientesTableCreateCompanionBuilder,
+      $$ClientesTableUpdateCompanionBuilder,
+      (Cliente, BaseReferences<_$AppDatabase, $ClientesTable, Cliente>),
+      Cliente,
+      PrefetchHooks Function()
+    >;
+
+class $AppDatabaseManager {
+  final _$AppDatabase _db;
+  $AppDatabaseManager(this._db);
+  $$ClientesTableTableManager get clientes =>
+      $$ClientesTableTableManager(_db, _db.clientes);
+}
+
+
+===== FILE: lib/data/local/app_database.dart =====
+
+import 'package:drift/drift.dart';
+import 'package:myapp/data/local/connection/unsupported.dart' 
+  if (dart.library.html) 'package:myapp/data/local/connection/web.dart' 
+  if (dart.library.io) 'package:myapp/data/local/connection/mobile.dart';
+import 'clientes_table.dart';
+
+part 'app_database.g.dart';
+
+@DriftDatabase(tables: [Clientes])
+class AppDatabase extends _$AppDatabase {
+  AppDatabase() : super(openConnection());
+
+  @override
+  int get schemaVersion => 1;
+
+  // Obtener todos los clientes no borrados
+  Future<List<Cliente>> getClientes() {
+    return (select(clientes)
+          ..where((c) => c.isDeleted.equals(false))
+          ..orderBy([(c) => OrderingTerm.desc(c.updatedAt)]))
+        .get();
+  }
+
+  // Obtener clientes pendientes de sincronización
+  Future<List<Cliente>> getPendingSync() {
+    return (select(clientes)..where((c) => c.pendingSync.equals(true))).get();
+  }
+
+  // Insertar o actualizar cliente
+  Future<int> upsertCliente(ClientesCompanion companion) {
+    return into(clientes).insertOnConflictUpdate(companion);
+  }
+
+  // Buscar por odooId
+  Future<Cliente?> findByOdooId(int odooId) {
+    return (select(clientes)..where((c) => c.odooId.equals(odooId)))
+        .getSingleOrNull();
+  }
+
+  // Actualizar múltiples desde remoto
+  Future<void> syncFromRemote(List<Map<String, dynamic>> remoteData) async {
+    await batch((batch) {
+      for (final data in remoteData) {
+        final odooId = data['id'] as int?;
+        if (odooId == null) continue;
+
+        batch.insert(
+          clientes,
+          ClientesCompanion.insert(
+            odooId: Value(odooId),
+            name: data['name'] ?? '',
+            email: Value(data['email']),
+            phone: Value(data['phone']),
+            city: Value(data['city']),
+            lastSync: Value(DateTime.now()),
+            pendingSync: const Value(false),
+          ),
+          onConflict: DoUpdate((old) {
+            // Solo actualizar si no hay cambios pendientes locales
+            return ClientesCompanion.custom(
+              name: Variable(data['name'] ?? ''),
+              email: Variable(data['email']),
+              phone: Variable(data['phone']),
+              city: Variable(data['city']),
+              lastSync: Variable(DateTime.now()),
+              updatedAt: Variable(DateTime.now()),
+            );
+          }, target: [clientes.odooId]),
+        );
+      }
+    });
+  }
+
+  // Marcar cliente para eliminación
+  Future<void> markForDeletion(int id) {
+    return (update(clientes)..where((c) => c.id.equals(id))).write(
+      const ClientesCompanion(
+        isDeleted: Value(true),
+        pendingSync: Value(true),
+      ),
+    );
+  }
+
+  // Eliminar permanentemente
+  Future<void> deleteCliente(int id) {
+    return (delete(clientes)..where((c) => c.id.equals(id))).go();
+  }
+}
+
+
+===== FILE: lib/data/remote/odoo_service.dart =====
+
+import 'package:http/http.dart' as http;
+
+class OdooService {
+  // Autenticar
+  Future<int> authenticate({
+    required String url,
+    required String db,
+    required String username,
+    required String password,
+  }) async {
+    final uri = Uri.parse('$url/xmlrpc/2/common');
+    final response = await http.post(
+      uri,
+      headers: {'Content-Type': 'text/xml'},
+      body: '''<?xml version="1.0"?>
+<methodCall>
+  <methodName>authenticate</methodName>
+  <params>
+    <param><value><string>$db</string></value></param>
+    <param><value><string>$username</string></value></param>
+    <param><value><string>$password</string></value></param>
+    <param><value><struct></struct></value></param>
+  </params>
+</methodCall>''',
+    );
+
+    final match = RegExp(r'<int>(\d+)</int>').firstMatch(response.body);
+    if (match == null) throw Exception('Error de autenticación');
+    return int.parse(match.group(1)!);
+  }
+
+  // Obtener clientes
+  Future<List<Map<String, dynamic>>> fetchClientes({
+    required String url,
+    required String db,
+    required int userId,
+    required String password,
+  }) async {
+    final uri = Uri.parse('$url/xmlrpc/2/object');
+    final response = await http.post(
+      uri,
+      headers: {'Content-Type': 'text/xml'},
+      body: '''<?xml version="1.0"?>
+<methodCall>
+  <methodName>execute_kw</methodName>
+  <params>
+    <param><value><string>$db</string></value></param>
+    <param><value><int>$userId</int></value></param>
+    <param><value><string>$password</string></value></param>
+    <param><value><string>res.partner</string></value></param>
+    <param><value><string>search_read</string></value></param>
+    <param>
+      <value><array><data><value><array><data><value><array><data>
+        <value><string>customer_rank</string></value>
+        <value><string>&gt;</string></value>
+        <value><int>0</int></value>
+      </data></array></value></data></array></value></data></array></value>
+    </param>
+    <param>
+      <value><struct>
+        <member><name>fields</name><value><array><data>
+          <value><string>id</string></value>
+          <value><string>name</string></value>
+          <value><string>email</string></value>
+          <value><string>phone</string></value>
+          <value><string>city</string></value>
+        </data></array></value></member>
+        <member><name>limit</name><value><int>200</int></value></member>
+      </struct></value>
+    </param>
+  </params>
+</methodCall>''',
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Error HTTP ${response.statusCode}');
+    }
+    return _parseXmlClientes(response.body);
+  }
+
+  // Crear cliente en Odoo
+  Future<int> createCliente({
+    required String url,
+    required String db,
+    required int userId,
+    required String password,
+    required Map<String, dynamic> data,
+  }) async {
+    final uri = Uri.parse('$url/xmlrpc/2/object');
+    final response = await http.post(
+      uri,
+      headers: {'Content-Type': 'text/xml'},
+      body: '''<?xml version="1.0"?>
+<methodCall>
+  <methodName>execute_kw</methodName>
+  <params>
+    <param><value><string>$db</string></value></param>
+    <param><value><int>$userId</int></value></param>
+    <param><value><string>$password</string></value></param>
+    <param><value><string>res.partner</string></value></param>
+    <param><value><string>create</string></value></param>
+    <param><value><array><data><value><struct>
+      <member><name>name</name><value><string>${_escape(data['name'])}</string></value></member>
+      ${data['email'] != null ? '<member><name>email</name><value><string>${_escape(data['email'])}</string></value></member>' : ''}
+      ${data['phone'] != null ? '<member><name>phone</name><value><string>${_escape(data['phone'])}</string></value></member>' : ''}
+      ${data['city'] != null ? '<member><name>city</name><value><string>${_escape(data['city'])}</string></value></member>' : ''}
+    </struct></value></data></array></value></param>
+  </params>
+</methodCall>''',
+    );
+
+    final match = RegExp(r'<int>(\d+)</int>').firstMatch(response.body);
+    if (match == null) throw Exception('Error creando cliente');
+    return int.parse(match.group(1)!);
+  }
+
+  // Actualizar cliente
+  Future<void> updateCliente({
+    required String url,
+    required String db,
+    required int userId,
+    required String password,
+    required int odooId,
+    required Map<String, dynamic> data,
+  }) async {
+    final uri = Uri.parse('$url/xmlrpc/2/object');
+    await http.post(
+      uri,
+      headers: {'Content-Type': 'text/xml'},
+      body: '''<?xml version="1.0"?>
+<methodCall>
+  <methodName>execute_kw</methodName>
+  <params>
+    <param><value><string>$db</string></value></param>
+    <param><value><int>$userId</int></value></param>
+    <param><value><string>$password</string></value></param>
+    <param><value><string>res.partner</string></value></param>
+    <param><value><string>write</string></value></param>
+    <param><value><array><data>
+      <value><array><data><value><int>$odooId</int></value></data></array></value>
+      <value><struct>
+        <member><name>name</name><value><string>${_escape(data['name'])}</string></value></member>
+        ${data['email'] != null ? '<member><name>email</name><value><string>${_escape(data['email'])}</string></value></member>' : ''}
+        ${data['phone'] != null ? '<member><name>phone</name><value><string>${_escape(data['phone'])}</string></value></member>' : ''}
+        ${data['city'] != null ? '<member><name>city</name><value><string>${_escape(data['city'])}</string></value></member>' : ''}
+      </struct></value>
+    </data></array></value></param>
+  </params>
+</methodCall>''',
+    );
+  }
+
+  // Eliminar cliente
+  Future<void> deleteCliente({
+    required String url,
+    required String db,
+    required int userId,
+    required String password,
+    required int odooId,
+  }) async {
+    final uri = Uri.parse('$url/xmlrpc/2/object');
+    await http.post(
+      uri,
+      headers: {'Content-Type': 'text/xml'},
+      body: '''<?xml version="1.0"?>
+<methodCall>
+  <methodName>execute_kw</methodName>
+  <params>
+    <param><value><string>$db</string></value></param>
+    <param><value><int>$userId</int></value></param>
+    <param><value><string>$password</string></value></param>
+    <param><value><string>res.partner</string></value></param>
+    <param><value><string>unlink</string></value></param>
+    <param><value><array><data><value><array><data>
+      <value><int>$odooId</int></value>
+    </data></array></value></data></array></value></param>
+  </params>
+</methodCall>''',
+    );
+  }
+
+  String _escape(String text) {
+    return text
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&apos;');
+  }
+
+  List<Map<String, dynamic>> _parseXmlClientes(String xml) {
+    final result = <Map<String, dynamic>>[];
+    final structRegex = RegExp(r'<struct>(.*?)</struct>', dotAll: true);
+    final structs = structRegex.allMatches(xml);
+
+    for (final struct in structs) {
+      final cliente = <String, dynamic>{};
+      final memberRegex = RegExp(
+        r'<member>\s*<name>(.*?)</name>\s*<value>(?:<string>(.*?)</string>|<int>(.*?)</int>)',
+        dotAll: true,
+      );
+      for (final m in memberRegex.allMatches(struct.group(1)!)) {
+        final key = m.group(1)!;
+        final stringVal = m.group(2);
+        final intVal = m.group(3);
+        
+        if (intVal != null) {
+          cliente[key] = int.parse(intVal);
+        } else if (stringVal != null && stringVal.isNotEmpty) {
+          cliente[key] = stringVal;
+        }
+      }
+      if (cliente.isNotEmpty) result.add(cliente);
+    }
+    return result;
+  }
+}
+
+===== FILE: lib/data/clientes_repository.dart =====
+
+import 'package:myapp/data/local/app_database.dart';
+import 'package:myapp/data/remote/odoo_service.dart';
+import 'package:drift/drift.dart';
+
+class ClientesRepository {
+  final AppDatabase db;
+  final OdooService remote;
+
+  ClientesRepository(this.db, this.remote);
+
+  // Obtener clientes offline
+  Future<List<Cliente>> getClientesOffline() {
+    return db.getClientes();
+  }
+
+  // Sincronización completa
+  Future<void> syncClientes({
+    required String url,
+    required String dbName,
+    required int userId,
+    required String password,
+  }) async {
+    // 1. Push: enviar cambios locales
+    await _pushLocalChanges(url: url, dbName: dbName, userId: userId, password: password);
+
+    // 2. Pull: obtener datos remotos
+    final remoteClientes = await remote.fetchClientes(
+      url: url,
+      db: dbName,
+      userId: userId,
+      password: password,
+    );
+
+    // 3. Actualizar BD local
+    await db.syncFromRemote(remoteClientes);
+  }
+
+  Future<void> _pushLocalChanges({
+    required String url,
+    required String dbName,
+    required int userId,
+    required String password,
+  }) async {
+    final pending = await db.getPendingSync();
+
+    for (final cliente in pending) {
+      try {
+        if (cliente.isDeleted && cliente.odooId != null) {
+          // Eliminar en remoto
+          await remote.deleteCliente(
+            url: url,
+            db: dbName,
+            userId: userId,
+            password: password,
+            odooId: cliente.odooId!,
+          );
+          await db.deleteCliente(cliente.id);
+        } else if (cliente.odooId == null) {
+          // Crear en remoto
+          final newOdooId = await remote.createCliente(
+            url: url,
+            db: dbName,
+            userId: userId,
+            password: password,
+            data: {
+              'name': cliente.name,
+              'email': cliente.email,
+              'phone': cliente.phone,
+              'city': cliente.city,
+            },
+          );
+          
+          await db.upsertCliente(ClientesCompanion(
+            id: Value(cliente.id),
+            odooId: Value(newOdooId),
+            pendingSync: const Value(false),
+            lastSync: Value(DateTime.now()),
+          ));
+        } else {
+          // Actualizar en remoto
+          await remote.updateCliente(
+            url: url,
+            db: dbName,
+            userId: userId,
+            password: password,
+            odooId: cliente.odooId!,
+            data: {
+              'name': cliente.name,
+              'email': cliente.email,
+              'phone': cliente.phone,
+              'city': cliente.city,
+            },
+          );
+          
+          await db.upsertCliente(ClientesCompanion(
+            id: Value(cliente.id),
+            pendingSync: const Value(false),
+            lastSync: Value(DateTime.now()),
+          ));
+        }
+      } catch (e) {
+        // Manejar el error de forma más robusta en producción
+      }
+    }
+  }
+
+  // CRUD local
+  Future<void> createCliente(String name, {String? email, String? phone, String? city}) {
+    return db.upsertCliente(ClientesCompanion.insert(
+      name: name,
+      email: Value(email),
+      phone: Value(phone),
+      city: Value(city),
+      pendingSync: const Value(true),
+    ));
+  }
+
+  Future<void> updateCliente(int id, {required String name, String? email, String? phone, String? city}) {
+    return db.upsertCliente(ClientesCompanion(
+      id: Value(id),
+      name: Value(name),
+      email: Value(email),
+      phone: Value(phone),
+      city: Value(city),
+      pendingSync: const Value(true),
+      updatedAt: Value(DateTime.now()),
+    ));
+  }
+
+  Future<void> deleteCliente(Cliente cliente) async {
+    if (cliente.odooId != null) {
+      await db.markForDeletion(cliente.id);
+    } else {
+      await db.deleteCliente(cliente.id);
+    }
+  }
+}
+
+
+===== FILE: lib/main.dart =====
+
+import 'package:flutter/material.dart';
+import 'data/local/app_database.dart';
+import 'data/clientes_repository.dart';
+import 'data/remote/odoo_service.dart';
+
+void main() {
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Clientes Offline-First',
+      theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
+      home: const OdooClientesPage(),
+    );
+  }
+}
+
+class OdooClientesPage extends StatefulWidget {
+  const OdooClientesPage({super.key});
+
+  @override
+  State<OdooClientesPage> createState() => _OdooClientesPageState();
+}
+
+class _OdooClientesPageState extends State<OdooClientesPage> {
+  final _url = TextEditingController(text: 'https://tumburu.es');
+  final _db = TextEditingController(text: 'betat1');
+  final _user = TextEditingController(text: 'duvalsoft@gmail.com');
+  final _pass = TextEditingController();
+
+  int? userId;
+  bool loading = false;
+  bool syncing = false;
+  String? error;
+  List<Cliente> clientes = [];
+  DateTime? lastSync;
+
+  late ClientesRepository repo;
+
+  @override
+  void initState() {
+    super.initState();
+    repo = ClientesRepository(AppDatabase(), OdooService());
+    _loadLocalClientes();
+  }
+
+  Future<void> _loadLocalClientes() async {
+    final local = await repo.getClientesOffline();
+    setState(() => clientes = local);
+  }
+
+  Future<void> login() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
+
+    try {
+      final uid = await repo.remote.authenticate(
+        url: _url.text,
+        db: _db.text,
+        username: _user.text,
+        password: _pass.text,
+      );
+
+      setState(() => userId = uid);
+      await syncClientes();
+    } catch (e) {
+      setState(() {
+        error = e.toString();
+        loading = false;
+      });
+    }
+  }
+
+  Future<void> syncClientes() async {
+    setState(() {
+      syncing = true;
+      error = null;
+    });
+
+    try {
+      await repo.syncClientes(
+        url: _url.text,
+        dbName: _db.text,
+        userId: userId!,
+        password: _pass.text,
+      );
+
+      setState(() => lastSync = DateTime.now());
+      await _loadLocalClientes();
+    } catch (e) {
+      setState(() => error = e.toString());
+    } finally {
+      setState(() {
+        syncing = false;
+        loading = false;
+      });
+    }
+  }
+
+  Future<void> _showClienteDialog({Cliente? cliente}) async {
+    final nameController = TextEditingController(text: cliente?.name);
+    final emailController = TextEditingController(text: cliente?.email);
+    final phoneController = TextEditingController(text: cliente?.phone);
+    final cityController = TextEditingController(text: cliente?.city);
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(cliente == null ? 'Nuevo Cliente' : 'Editar Cliente'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Nombre *')),
+            TextField(controller: emailController, decoration: const InputDecoration(labelText: 'Email')),
+            TextField(controller: phoneController, decoration: const InputDecoration(labelText: 'Teléfono')),
+            TextField(controller: cityController, decoration: const InputDecoration(labelText: 'Ciudad')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              if (nameController.text.trim().isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('El nombre es obligatorio')),
+                );
+                return;
+              }
+
+              if (cliente == null) {
+                await repo.createCliente(
+                  nameController.text.trim(),
+                  email: emailController.text.trim().isEmpty ? null : emailController.text.trim(),
+                  phone: phoneController.text.trim().isEmpty ? null : phoneController.text.trim(),
+                  city: cityController.text.trim().isEmpty ? null : cityController.text.trim(),
+                );
+              } else {
+                await repo.updateCliente(
+                  cliente.id,
+                  name: nameController.text.trim(),
+                  email: emailController.text.trim().isEmpty ? null : emailController.text.trim(),
+                  phone: phoneController.text.trim().isEmpty ? null : phoneController.text.trim(),
+                  city: cityController.text.trim().isEmpty ? null : cityController.text.trim(),
+                );
+              }
+
+              await _loadLocalClientes();
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteCliente(Cliente cliente) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirmar'),
+        content: Text('¿Eliminar "${cliente.name}"?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await repo.deleteCliente(cliente);
+      await _loadLocalClientes();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pendingCount = clientes.where((c) => c.pendingSync).length;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Clientes Offline-First'),
+            if (lastSync != null)
+              Text('Última sync: ${_formatTime(lastSync!)}', style: const TextStyle(fontSize: 12)),
+          ],
+        ),
+        actions: [
+          if (pendingCount > 0)
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Chip(label: Text('$pendingCount pendientes'), backgroundColor: Colors.orange),
+            ),
+          if (userId != null)
+            IconButton(
+              icon: syncing
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.sync),
+              onPressed: syncing ? null : syncClientes,
+            ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            if (userId == null) ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      const Text('Configuración Odoo', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 12),
+                      TextField(controller: _url, decoration: const InputDecoration(labelText: 'URL', border: OutlineInputBorder())),
+                      const SizedBox(height: 8),
+                      TextField(controller: _db, decoration: const InputDecoration(labelText: 'Base de datos', border: OutlineInputBorder())),
+                      const SizedBox(height: 8),
+                      TextField(controller: _user, decoration: const InputDecoration(labelText: 'Usuario', border: OutlineInputBorder())),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _pass,
+                        obscureText: true,
+                        decoration: const InputDecoration(labelText: 'Contraseña', border: OutlineInputBorder()),
+                        onSubmitted: (_) => login(),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: loading ? null : login,
+                          child: loading
+                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Text('Conectar y Sincronizar'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ] else ...[
+              Card(
+                color: Colors.green.shade50,
+                child: ListTile(
+                  leading: const Icon(Icons.cloud_done, color: Colors.green),
+                  title: Text('Conectado (UID: $userId)'),
+                  trailing: TextButton(onPressed: () => setState(() => userId = null), child: const Text('Desconectar')),
+                ),
+              ),
+            ],
+            if (error != null)
+              Card(
+                color: Colors.red.shade50,
+                child: ListTile(
+                  leading: const Icon(Icons.error, color: Colors.red),
+                  title: const Text('Error'),
+                  subtitle: Text(error!),
+                  trailing: IconButton(icon: const Icon(Icons.close), onPressed: () => setState(() => error = null)),
+                ),
+              ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: clientes.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.people_outline, size: 64, color: Colors.grey.shade400),
+                          const SizedBox(height: 16),
+                          Text('No hay clientes', style: TextStyle(fontSize: 18, color: Colors.grey.shade600)),
+                          const SizedBox(height: 8),
+                          Text(
+                            userId == null ? 'Conecta para sincronizar\no crea uno nuevo' : 'Crea tu primer cliente',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.grey.shade500),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: clientes.length,
+                      itemBuilder: (context, i) {
+                        final c = clientes[i];
+                        return Card(
+                          color: c.pendingSync ? Colors.orange.shade50 : null,
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: c.pendingSync ? Colors.orange : Colors.blue,
+                              child: Text(c.name[0].toUpperCase(), style: const TextStyle(color: Colors.white)),
+                            ),
+                            title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w500)),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (c.email != null) Text('📧 ${c.email}'),
+                                if (c.phone != null) Text('📞 ${c.phone}'),
+                                if (c.city != null) Text('📍 ${c.city}'),
+                                const SizedBox(height: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(4)),
+                                  child: Text(
+                                    'ID Local: ${c.id} | ID Odoo: ${c.odooId ?? "pendiente"}',
+                                    style: TextStyle(fontSize: 10, color: Colors.grey.shade700, fontFamily: 'monospace'),
+                                  ),
+                                ),
+                                if (c.pendingSync)
+                                  const Padding(
+                                    padding: EdgeInsets.only(top: 4),
+                                    child: Text('⏳ Pendiente de sincronización',
+                                        style: TextStyle(fontSize: 11, color: Colors.orange, fontWeight: FontWeight.bold)),
+                                  ),
+                              ],
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(icon: const Icon(Icons.edit, size: 20), onPressed: () => _showClienteDialog(cliente: c)),
+                                IconButton(icon: const Icon(Icons.delete, size: 20, color: Colors.red), onPressed: () => _deleteCliente(c)),
+                              ],
+                            ),
+                            isThreeLine: true,
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+      floatingActionButton: FloatingActionButton(onPressed: () => _showClienteDialog(), child: const Icon(Icons.add)),
+    );
+  }
+
+  String _formatTime(DateTime time) {
+    final diff = DateTime.now().difference(time);
+    if (diff.inMinutes < 1) return 'hace ${diff.inSeconds}s';
+    if (diff.inHours < 1) return 'hace ${diff.inMinutes}m';
+    if (diff.inDays < 1) return 'hace ${diff.inHours}h';
+    return 'hace ${diff.inDays}d';
+  }
+}
+
+
+===== FILE: pubspec.yaml =====
+
+name: myapp
+description: App offline-first con Drift
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.9.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Drift - Base de datos
+  drift: ^2.15.0
+  sqlite3_flutter_libs: ^0.5.20
+  path_provider: ^2.1.3
+  path: ^1.9.0
+  http: ^1.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+  # Generación de código Drift
+  drift_dev: ^2.15.0
+  build_runner: ^2.4.9
+
+# Configuración específica de Drift para evitar errores en web
+drift:
+  platforms:
+    - native
+    - web
+
+
+===== FILE: analysis_options.yaml =====
+
+# This file configures the analyzer, which statically analyzes Dart code to
+# check for errors, warnings, and lints.
+#
+# The issues identified by the analyzer are surfaced in the UI of Dart-enabled
+# IDEs (https://dart.dev/tools#ides-and-editors). The analyzer can also be
+# invoked from the command line by running `flutter analyze`.
+
+# The following line activates a set of recommended lints for Flutter apps,
+# packages, and plugins designed to encourage good coding practices.
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  # The lint rules applied to this project can be customized in the
+  # section below to disable rules from the `package:flutter_lints/flutter.yaml`
+  # included above or to enable additional rules. A list of all available lints
+  # and their documentation is published at https://dart.dev/lints.
+  #
+  # Instead of disabling a lint rule for the entire project in the
+  # section below, it can also be suppressed for a single line of code
+  # or a specific dart file by using the `// ignore: name_of_lint` and
+  # `// ignore_for_file: name_of_lint` syntax on the line or in the file
+  # producing the lint.
+  rules:
+    # avoid_print: false  # Uncomment to disable the `avoid_print` rule
+    # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
+
+# Additional information about this file can be found at
+# https://dart.dev/guides/language/analysis-options
