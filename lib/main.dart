@@ -1,6 +1,5 @@
-
 import 'package:flutter/material.dart';
-import 'package:drift/drift.dart' as drift;
+import 'package:google_fonts/google_fonts.dart';
 import 'data/local/app_database.dart';
 import 'data/clientes_repository.dart';
 import 'data/remote/odoo_service.dart';
@@ -14,9 +13,14 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
     return MaterialApp(
       title: 'Clientes Offline-First',
-      theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        useMaterial3: true,
+        textTheme: GoogleFonts.robotoTextTheme(textTheme),
+      ),
       home: const OdooClientesPage(),
     );
   }
@@ -52,8 +56,17 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
   }
 
   Future<void> _loadLocalClientes() async {
-    final local = await repo.getClientesOffline();
-    setState(() => clientes = local);
+    try {
+      final local = await repo.getClientesOffline();
+      if (mounted) {
+        setState(() => clientes = local);
+      }
+    } catch (e) {
+      debugPrint('Error cargando clientes: $e');
+      if (mounted) {
+        setState(() => error = 'Error cargando clientes: $e');
+      }
+    }
   }
 
   Future<void> login() async {
@@ -63,24 +76,66 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
     });
 
     try {
+      debugPrint('🔑 Iniciando login...');
+      
+      // PRUEBA DE CONECTIVIDAD PRIMERO
+      debugPrint('🧪 Probando conectividad básica...');
+      try {
+        final testResponse = await http.get(Uri.parse(_url.text.trim())).timeout(
+          const Duration(seconds: 10),
+        );
+        debugPrint('✅ Conectividad OK - Status: ${testResponse.statusCode}');
+      } catch (e) {
+        debugPrint('⚠️ Advertencia en test de conectividad: $e');
+      }
+      
       final uid = await repo.remote.authenticate(
-        url: _url.text,
-        db: _db.text,
-        username: _user.text,
+        url: _url.text.trim(),
+        db: _db.text.trim(),
+        username: _user.text.trim(),
         password: _pass.text,
       );
 
+      debugPrint('✅ Login exitoso - UID: $uid');
+      
+      // Verificar información del usuario
+      debugPrint('👤 Verificando información del usuario...');
+      await repo.remote.getUserInfo(
+        url: _url.text.trim(),
+        db: _db.text.trim(),
+        userId: uid,
+        password: _pass.text,
+      );
+      
       setState(() => userId = uid);
+      
+      // Sincronizar y recargar clientes
       await syncClientes();
-    } catch (e) {
+      
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error en login: $e');
+      debugPrint('Stack: $stackTrace');
+      
       setState(() {
-        error = e.toString();
+        error = 'Error de conexión: ${e.toString()}';
         loading = false;
       });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
     }
   }
 
   Future<void> syncClientes() async {
+    if (userId == null) return;
+    
     setState(() {
       syncing = true;
       error = null;
@@ -95,9 +150,38 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
       );
 
       setState(() => lastSync = DateTime.now());
+      
+      // IMPORTANTE: Recargar clientes después de sincronizar
       await _loadLocalClientes();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Sincronización completada'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+      
     } catch (e) {
-      setState(() => error = e.toString());
+      debugPrint('❌ Error sincronizando: $e');
+      
+      String errorMsg = e.toString();
+      if (errorMsg.contains('Access Denied')) {
+        errorMsg = 'Permisos insuficientes: El usuario no tiene acceso a clientes en Odoo.\n\nVerifica que el usuario tenga el rol "Ventas / Usuario" o "Contactos / Usuario".';
+      }
+      
+      setState(() => error = errorMsg);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ $errorMsg'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 7),
+          ),
+        );
+      }
     } finally {
       setState(() {
         syncing = false;
@@ -116,14 +200,19 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(cliente == null ? 'Nuevo Cliente' : 'Editar Cliente'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Nombre *')),
-            TextField(controller: emailController, decoration: const InputDecoration(labelText: 'Email')),
-            TextField(controller: phoneController, decoration: const InputDecoration(labelText: 'Teléfono')),
-            TextField(controller: cityController, decoration: const InputDecoration(labelText: 'Ciudad')),
-          ],
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Nombre *')),
+              const SizedBox(height: 8),
+              TextField(controller: emailController, decoration: const InputDecoration(labelText: 'Email')),
+              const SizedBox(height: 8),
+              TextField(controller: phoneController, decoration: const InputDecoration(labelText: 'Teléfono')),
+              const SizedBox(height: 8),
+              TextField(controller: cityController, decoration: const InputDecoration(labelText: 'Ciudad')),
+            ],
+          ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
@@ -136,25 +225,39 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
                 return;
               }
 
-              if (cliente == null) {
-                await repo.createCliente(
-                  nameController.text.trim(),
-                  email: emailController.text.trim().isEmpty ? null : emailController.text.trim(),
-                  phone: phoneController.text.trim().isEmpty ? null : phoneController.text.trim(),
-                  city: cityController.text.trim().isEmpty ? null : cityController.text.trim(),
-                );
-              } else {
-                await repo.updateCliente(
-                  cliente.id,
-                  name: nameController.text.trim(),
-                  email: emailController.text.trim().isEmpty ? null : emailController.text.trim(),
-                  phone: phoneController.text.trim().isEmpty ? null : phoneController.text.trim(),
-                  city: cityController.text.trim().isEmpty ? null : cityController.text.trim(),
-                );
-              }
+              try {
+                if (cliente == null) {
+                  await repo.createCliente(
+                    nameController.text.trim(),
+                    email: emailController.text.trim().isEmpty ? null : emailController.text.trim(),
+                    phone: phoneController.text.trim().isEmpty ? null : phoneController.text.trim(),
+                    city: cityController.text.trim().isEmpty ? null : cityController.text.trim(),
+                  );
+                } else {
+                  await repo.updateCliente(
+                    cliente.id,
+                    name: nameController.text.trim(),
+                    email: emailController.text.trim().isEmpty ? null : emailController.text.trim(),
+                    phone: phoneController.text.trim().isEmpty ? null : phoneController.text.trim(),
+                    city: cityController.text.trim().isEmpty ? null : cityController.text.trim(),
+                  );
+                }
 
-              await _loadLocalClientes();
-              if (ctx.mounted) Navigator.pop(ctx);
+                await _loadLocalClientes();
+                if (ctx.mounted) Navigator.pop(ctx);
+                
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(cliente == null ? 'Cliente creado' : 'Cliente actualizado')),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error: $e')),
+                  );
+                }
+              }
             },
             child: const Text('Guardar'),
           ),
@@ -181,8 +284,22 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
     );
 
     if (confirm == true) {
-      await repo.deleteCliente(cliente);
-      await _loadLocalClientes();
+      try {
+        await repo.deleteCliente(cliente);
+        await _loadLocalClientes();
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Cliente eliminado')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error al eliminar: $e')),
+          );
+        }
+      }
     }
   }
 
@@ -298,43 +415,47 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
                         final c = clientes[i];
                         return Card(
                           color: c.pendingSync ? Colors.orange.shade50 : null,
-                          child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: c.pendingSync ? Colors.orange : Colors.blue,
-                              child: Text(c.name[0].toUpperCase(), style: const TextStyle(color: Colors.white)),
-                            ),
-                            title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w500)),
-                            subtitle: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
-                                if (c.email != null) Text('📧 ${c.email}'),
-                                if (c.phone != null) Text('📞 ${c.phone}'),
-                                if (c.city != null) Text('📍 ${c.city}'),
-                                const SizedBox(height: 4),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(4)),
-                                  child: Text(
-                                    'ID Local: ${c.id} | ID Odoo: ${c.odooId ?? "pendiente"}',
-                                    style: TextStyle(fontSize: 10, color: Colors.grey.shade700, fontFamily: 'monospace'),
+                                CircleAvatar(
+                                  backgroundColor: c.pendingSync ? Colors.orange : Colors.blue,
+                                  child: Text(c.name[0].toUpperCase(), style: const TextStyle(color: Colors.white)),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(c.name, style: const TextStyle(fontWeight: FontWeight.w500)),
+                                      const SizedBox(height: 2),
+                                      if (c.email != null) Text('📧 ${c.email}', style: const TextStyle(fontSize: 12)),
+                                      if (c.phone != null) Text('📞 ${c.phone}', style: const TextStyle(fontSize: 12)),
+                                      if (c.city != null) Text('📍 ${c.city}', style: const TextStyle(fontSize: 12)),
+                                      const SizedBox(height: 4),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(4)),
+                                        child: Text(
+                                          'ID Local: ${c.id} | ID Odoo: ${c.odooId ?? "pendiente"}',
+                                          style: TextStyle(fontSize: 10, color: Colors.grey.shade700, fontFamily: 'monospace'),
+                                        ),
+                                      ),
+                                      if (c.pendingSync)
+                                        const Padding(
+                                          padding: EdgeInsets.only(top: 4),
+                                          child: Text('⏳ Pendiente de sincronización',
+                                              style: TextStyle(fontSize: 11, color: Colors.orange, fontWeight: FontWeight.bold)),
+                                        ),
+                                    ],
                                   ),
                                 ),
-                                if (c.pendingSync)
-                                  const Padding(
-                                    padding: EdgeInsets.only(top: 4),
-                                    child: Text('⏳ Pendiente de sincronización',
-                                        style: TextStyle(fontSize: 11, color: Colors.orange, fontWeight: FontWeight.bold)),
-                                  ),
+                                IconButton(icon: const Icon(Icons.edit, size: 20, color: Colors.grey), onPressed: () => _showClienteDialog(cliente: c)),
+                                IconButton(icon: const Icon(Icons.delete, size: 20, color: Colors.redAccent), onPressed: () => _deleteCliente(c)),
                               ],
                             ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(icon: const Icon(Icons.edit, size: 20), onPressed: () => _showClienteDialog(cliente: c)),
-                                IconButton(icon: const Icon(Icons.delete, size: 20, color: Colors.red), onPressed: () => _deleteCliente(c)),
-                              ],
-                            ),
-                            isThreeLine: true,
                           ),
                         );
                       },

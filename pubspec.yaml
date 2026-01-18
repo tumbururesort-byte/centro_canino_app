@@ -1,5 +1,5 @@
 name: myapp
-description: App offline-first con Drift
+description: "App offline-first de clientes con Odoo"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -9,15 +9,27 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  drift: ^2.20.0
+  
+  # Database (solo SQLite nativo para Android)
+  drift: ^2.14.0
   sqlite3_flutter_libs: ^0.5.0
   path_provider: ^2.1.0
-  path: ^1.9.0
-  http: ^1.2.0
+  path: ^1.8.0
+  
+  # HTTP para Odoo
+  http: ^1.1.0
+  
+  # UI
+  google_fonts: ^6.1.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
-  drift_dev: ^2.20.0
+  
+  # Code generation
+  drift_dev: ^2.14.0
   build_runner: ^2.4.0
+
+flutter:
+  uses-material-design: true
