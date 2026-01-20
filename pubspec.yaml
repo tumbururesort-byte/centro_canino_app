@@ -17,10 +17,11 @@ dependencies:
   path: ^1.8.0
   
   # HTTP para Odoo
-  http: ^1.1.0
+  http: ^1.6.0
   
   # UI
   google_fonts: ^6.1.0
+  xml: ^6.6.1
 
 dev_dependencies:
   flutter_test:
