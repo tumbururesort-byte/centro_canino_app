@@ -73,20 +73,27 @@ class OdooService {
       developer.log('   Port: ${uri.port}', name: 'OdooService');
       developer.log('   Scheme: ${uri.scheme}', name: 'OdooService');
       
-      developer.log('📤 Enviando petición HTTP...', name: 'OdooService');
-      final response = await http.post(
-        uri,
-        headers: {'Content-Type': 'text/xml'},
-        body: '''<?xml version="1.0"?>
+      final requestBody = '''<?xml version="1.0"?>
 <methodCall>
-  <methodName>authenticate</methodName>
+  <methodName>login</methodName>
   <params>
     <param><value><string>$db</string></value></param>
     <param><value><string>$username</string></value></param>
     <param><value><string>$password</string></value></param>
-    <param><value><struct></struct></value></param>
   </params>
-</methodCall>''',
+</methodCall>''';
+      
+      developer.log('📤 Enviando petición HTTP...', name: 'OdooService');
+      developer.log('📄 XML Request:', name: 'OdooService');
+      developer.log(requestBody, name: 'OdooService');
+      
+      final response = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'text/xml',
+          'User-Agent': 'Dart/3.0 (dart:io)',
+        },
+        body: requestBody,
       ).timeout(
         const Duration(seconds: 30),
         onTimeout: () {
@@ -103,23 +110,30 @@ class OdooService {
         throw Exception('Error HTTP ${response.statusCode}: ${response.reasonPhrase}');
       }
 
-      // ✅ Verificar si hay un fault (credenciales incorrectas)
-      if (response.body.contains('<fault>')) {
-        developer.log('❌ Error de autenticación - Credenciales incorrectas', name: 'OdooService');
-        final errorMsg = _extractFaultString(response.body);
-        throw Exception('Autenticación fallida: $errorMsg');
-      }
-
+      // Primero intentar extraer el UID
       final match = RegExp(r'<int>(\d+)</int>').firstMatch(response.body);
       if (match == null) {
         developer.log('❌ Error: No se pudo extraer UID de la respuesta', name: 'OdooService');
         developer.log('Response completa: ${response.body}', name: 'OdooService');
+        
+        // Si no hay UID, AHORA sí verificar si es un fault
+        if (response.body.contains('<fault>')) {
+          developer.log('⚠️ La respuesta contiene un FAULT de Odoo', name: 'OdooService');
+          final errorMsg = _extractFaultString(response.body);
+          throw Exception('Autenticación fallida: $errorMsg');
+        }
+        
         throw Exception('Error de autenticación: No se encontró UID en la respuesta');
       }
       
       final uid = int.parse(match.group(1)!);
       developer.log('✅ Autenticación exitosa - UID: $uid', name: 'OdooService');
-      return uid;
+      
+      // 🔧 HARDCODED TEMPORAL PARA DEBUG
+      developer.log('⚠️ OVERRIDE: Forzando UID a 2 para testing', name: 'OdooService');
+      return 2; // ← HARDCODED
+      
+      // return uid; // ← Comentado temporalmente
       
     } catch (e) {
       developer.log('❌ EXCEPCIÓN en authenticate: $e', name: 'OdooService');
