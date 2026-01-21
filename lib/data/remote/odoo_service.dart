@@ -31,7 +31,7 @@ class OdooService {
     </param>
     <param>
       <value><struct>
-        <member><n>fields</n><value><array><data>
+        <member><name>fields</name><value><array><data>
           <value><string>id</string></value>
           <value><string>name</string></value>
           <value><string>login</string></value>
@@ -43,7 +43,15 @@ class OdooService {
 </methodCall>''',
     );
 
-    developer.log('👤 User Info Response: ${response.body}', name: 'OdooService');
+    developer.log('📥 User Info Status: ${response.statusCode}', name: 'OdooService');
+    developer.log('📥 User Info Response (primeros 500 chars): ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}', name: 'OdooService');
+    
+    // Verificar si hay un error en la respuesta
+    if (response.body.contains('<fault>')) {
+      developer.log('❌ Error obteniendo info del usuario', name: 'OdooService');
+      final errorMsg = _extractFaultString(response.body);
+      throw Exception('Error obteniendo info del usuario: $errorMsg');
+    }
     
     return {};
   }
@@ -88,8 +96,6 @@ class OdooService {
       );
 
       developer.log('📥 Status code: ${response.statusCode}', name: 'OdooService');
-      developer.log('📥 Response headers: ${response.headers}', name: 'OdooService');
-      developer.log('📥 Response body (primeros 500 chars): ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}', name: 'OdooService');
 
       if (response.statusCode != 200) {
         developer.log('❌ Error HTTP: ${response.statusCode}', name: 'OdooService');
@@ -97,16 +103,17 @@ class OdooService {
         throw Exception('Error HTTP ${response.statusCode}: ${response.reasonPhrase}');
       }
 
+      // ✅ Verificar si hay un fault (credenciales incorrectas)
+      if (response.body.contains('<fault>')) {
+        developer.log('❌ Error de autenticación - Credenciales incorrectas', name: 'OdooService');
+        final errorMsg = _extractFaultString(response.body);
+        throw Exception('Autenticación fallida: $errorMsg');
+      }
+
       final match = RegExp(r'<int>(\d+)</int>').firstMatch(response.body);
       if (match == null) {
         developer.log('❌ Error: No se pudo extraer UID de la respuesta', name: 'OdooService');
         developer.log('Response completa: ${response.body}', name: 'OdooService');
-        
-        // Verificar si hay un fault en la respuesta
-        if (response.body.contains('<methodResponse>') && response.body.contains('<fault>')) {
-          developer.log('⚠️ La respuesta contiene un FAULT de Odoo', name: 'OdooService');
-        }
-        
         throw Exception('Error de autenticación: No se encontró UID en la respuesta');
       }
       
@@ -119,6 +126,15 @@ class OdooService {
       developer.log('Tipo de error: ${e.runtimeType}', name: 'OdooService');
       rethrow;
     }
+  }
+
+  // ✅ NUEVO: Extraer mensaje de error de un fault
+  String _extractFaultString(String xml) {
+    final match = RegExp(r'<name>faultString</name>\s*<value><string>(.*?)</string>', dotAll: true).firstMatch(xml);
+    if (match != null) {
+      return match.group(1) ?? 'Error desconocido';
+    }
+    return 'Error desconocido';
   }
 
   // Obtener clientes
@@ -176,6 +192,18 @@ class OdooService {
       throw Exception('Error HTTP ${response.statusCode}');
     }
     
+    // ✅ CRÍTICO: Verificar si la respuesta es un error ANTES de parsear
+    if (response.body.contains('<fault>')) {
+      developer.log('❌ Odoo devolvió un error (fault)', name: 'OdooService');
+      developer.log('Response completa: ${response.body}', name: 'OdooService');
+      
+      final errorMsg = _extractFaultString(response.body);
+      developer.log('❌ Mensaje de error: $errorMsg', name: 'OdooService');
+      
+      // Lanzar excepción con el mensaje de error
+      throw Exception('Error de Odoo: $errorMsg');
+    }
+    
     developer.log('📥 Response recibida (primeros 1000 chars):', name: 'OdooService');
     developer.log(response.body.substring(0, response.body.length > 1000 ? 1000 : response.body.length), name: 'OdooService');
     
@@ -227,10 +255,17 @@ class OdooService {
 
     developer.log('📥 Response: ${response.body}', name: 'OdooService');
 
+    // ✅ Verificar errores
+    if (response.body.contains('<fault>')) {
+      final errorMsg = _extractFaultString(response.body);
+      developer.log('❌ Error creando cliente: $errorMsg', name: 'OdooService');
+      throw Exception('Error creando cliente: $errorMsg');
+    }
+
     final match = RegExp(r'<int>(\d+)</int>').firstMatch(response.body);
     if (match == null) {
-      developer.log('❌ Error creando cliente', name: 'OdooService');
-      throw Exception('Error creando cliente');
+      developer.log('❌ Error creando cliente - No se encontró ID', name: 'OdooService');
+      throw Exception('Error creando cliente: No se encontró ID en la respuesta');
     }
     
     final newId = int.parse(match.group(1)!);
@@ -276,6 +311,14 @@ class OdooService {
     );
     
     developer.log('📥 Response: ${response.body}', name: 'OdooService');
+    
+    // ✅ Verificar errores
+    if (response.body.contains('<fault>')) {
+      final errorMsg = _extractFaultString(response.body);
+      developer.log('❌ Error actualizando cliente: $errorMsg', name: 'OdooService');
+      throw Exception('Error actualizando cliente: $errorMsg');
+    }
+    
     developer.log('✅ Cliente actualizado', name: 'OdooService');
   }
 
@@ -310,6 +353,14 @@ class OdooService {
     );
     
     developer.log('📥 Response: ${response.body}', name: 'OdooService');
+    
+    // ✅ Verificar errores
+    if (response.body.contains('<fault>')) {
+      final errorMsg = _extractFaultString(response.body);
+      developer.log('❌ Error eliminando cliente: $errorMsg', name: 'OdooService');
+      throw Exception('Error eliminando cliente: $errorMsg');
+    }
+    
     developer.log('✅ Cliente eliminado', name: 'OdooService');
   }
 
@@ -355,9 +406,12 @@ class OdooService {
         }
       }
       
-      if (cliente.isNotEmpty) {
+      // ✅ IMPORTANTE: Solo agregar si tiene un ID válido (es un cliente real, no un error)
+      if (cliente.isNotEmpty && cliente.containsKey('id')) {
         developer.log('  ✅ Cliente parseado: $cliente', name: 'OdooService');
         result.add(cliente);
+      } else {
+        developer.log('  ⚠️ Struct ignorado (no es un cliente válido): $cliente', name: 'OdooService');
       }
     }
     

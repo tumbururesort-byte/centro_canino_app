@@ -53,17 +53,20 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
   void initState() {
     super.initState();
     repo = ClientesRepository(AppDatabase(), OdooService());
-    _loadLocalClientes();
+    // ✅ CAMBIO: Solo cargar clientes locales si ya hay una sesión activa
+    // NO cargar clientes automáticamente al iniciar
   }
 
   Future<void> _loadLocalClientes() async {
     try {
+      debugPrint('🔄 Cargando clientes locales...');
       final local = await repo.getClientesOffline();
+      debugPrint('✅ Clientes cargados: ${local.length}');
       if (mounted) {
         setState(() => clientes = local);
       }
     } catch (e) {
-      debugPrint('Error cargando clientes: $e');
+      debugPrint('❌ Error cargando clientes: $e');
       if (mounted) {
         setState(() => error = 'Error cargando clientes: $e');
       }
@@ -82,7 +85,9 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
       // PRUEBA DE CONECTIVIDAD PRIMERO
       debugPrint('🧪 Probando conectividad básica...');
       try {
-        final testResponse = await http_client.get(Uri.parse(_url.text.trim())).timeout(
+        final testResponse = await http_client.get(
+          Uri.parse(_url.text.trim())
+        ).timeout(
           const Duration(seconds: 10),
         );
         debugPrint('✅ Conectividad OK - Status: ${testResponse.statusCode}');
@@ -99,19 +104,14 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
 
       debugPrint('✅ Login exitoso - UID: $uid');
       
-      // Verificar información del usuario
-      debugPrint('👤 Verificando información del usuario...');
-      await repo.remote.getUserInfo(
-        url: _url.text.trim(),
-        db: _db.text.trim(),
-        userId: uid,
-        password: _pass.text,
-      );
+      // ✅ CAMBIO: Eliminar la verificación getUserInfo si no es necesaria
+      // O moverla DESPUÉS de asignar el userId
       
+      // Asignar userId primero
       setState(() => userId = uid);
       
-      // Sincronizar y recargar clientes
-      await syncClientes();
+      // Sincronizar pasando directamente el uid
+      await _syncClientesWithUid(uid);
       
     } catch (e, stackTrace) {
       debugPrint('❌ Error en login: $e');
@@ -134,25 +134,26 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
     }
   }
 
-  Future<void> syncClientes() async {
-    if (userId == null) return;
-    
+  Future<void> _syncClientesWithUid(int uid) async {
     setState(() {
       syncing = true;
       error = null;
     });
 
     try {
+      debugPrint('🔄 Iniciando sincronización con UID: $uid');
+      
       await repo.syncClientes(
-        url: _url.text,
-        dbName: _db.text,
-        userId: userId!,
+        url: _url.text.trim(),
+        dbName: _db.text.trim(),
+        userId: uid,
         password: _pass.text,
       );
 
+      debugPrint('✅ Sincronización completada');
       setState(() => lastSync = DateTime.now());
       
-      // IMPORTANTE: Recargar clientes después de sincronizar
+      // ✅ IMPORTANTE: Solo cargar clientes DESPUÉS de sincronizar exitosamente
       await _loadLocalClientes();
       
       if (mounted) {
@@ -164,12 +165,29 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
         );
       }
       
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint('❌ Error sincronizando: $e');
+      debugPrint('Stack trace: $stackTrace');
       
       String errorMsg = e.toString();
-      if (errorMsg.contains('Access Denied')) {
-        errorMsg = 'Permisos insuficientes: El usuario no tiene acceso a clientes en Odoo.\n\nVerifica que el usuario tenga el rol "Ventas / Usuario" o "Contactos / Usuario".';
+      
+      // Detectar diferentes tipos de errores
+      if (errorMsg.contains('Access Denied') || errorMsg.contains('faultCode')) {
+        errorMsg = '''
+⚠️ ERROR DE PERMISOS EN ODOO
+
+El usuario no tiene acceso a los clientes.
+
+Solución:
+1. Ve a Odoo → Configuración → Usuarios
+2. Edita el usuario: ${_user.text}
+3. Asigna uno de estos grupos:
+   • Ventas / Usuario
+   • Ventas / Administrador
+   • Contactos / Usuario
+
+Después vuelve a intentar la sincronización.
+''';
       }
       
       setState(() => error = errorMsg);
@@ -177,9 +195,30 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('❌ $errorMsg'),
+            content: Text('❌ Error: ${errorMsg.split('\n')[0]}'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 7),
+            action: SnackBarAction(
+              label: 'Ver detalles',
+              textColor: Colors.white,
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Error de Sincronización'),
+                    content: SingleChildScrollView(
+                      child: Text(errorMsg),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Cerrar'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
           ),
         );
       }
@@ -189,6 +228,11 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
         loading = false;
       });
     }
+  }
+
+  Future<void> syncClientes() async {
+    if (userId == null) return;
+    await _syncClientesWithUid(userId!);
   }
 
   Future<void> _showClienteDialog({Cliente? cliente}) async {
@@ -384,11 +428,34 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
             if (error != null)
               Card(
                 color: Colors.red.shade50,
-                child: ListTile(
-                  leading: const Icon(Icons.error, color: Colors.red),
-                  title: const Text('Error'),
-                  subtitle: Text(error!),
-                  trailing: IconButton(icon: const Icon(Icons.close), onPressed: () => setState(() => error = null)),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.error, color: Colors.red),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'Error',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => setState(() => error = null),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        error!,
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             const SizedBox(height: 16),
@@ -403,7 +470,7 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
                           Text('No hay clientes', style: TextStyle(fontSize: 18, color: Colors.grey.shade600)),
                           const SizedBox(height: 8),
                           Text(
-                            userId == null ? 'Conecta para sincronizar\no crea uno nuevo' : 'Crea tu primer cliente',
+                            userId == null ? 'Conecta para sincronizar\no crea uno nuevo' : 'Sincroniza para cargar clientes\no crea uno nuevo',
                             textAlign: TextAlign.center,
                             style: TextStyle(color: Colors.grey.shade500),
                           ),
