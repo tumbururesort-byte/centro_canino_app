@@ -21,7 +21,9 @@ class $ClientesTable extends Clientes with TableInfo<$ClientesTable, Cliente> {
   @override
   late final GeneratedColumn<int> odooId = GeneratedColumn<int>(
       'odoo_id', aliasedName, true,
-      type: DriftSqlType.int, requiredDuringInsert: false);
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints: GeneratedColumn.constraintIsAlways('UNIQUE'));
   static const VerificationMeta _nameMeta = const VerificationMeta('name');
   @override
   late final GeneratedColumn<String> name = GeneratedColumn<String>(

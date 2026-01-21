@@ -2,7 +2,7 @@ import 'package:drift/drift.dart';
 
 class Clientes extends Table {
   IntColumn get id => integer().autoIncrement()();
-  IntColumn get odooId => integer().nullable()(); // ID remoto
+  IntColumn get odooId => integer().nullable().unique()(); // ID remoto
   TextColumn get name => text()();
   TextColumn get email => text().nullable()();
   TextColumn get phone => text().nullable()();
