@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:http/http.dart' as http_client;
+import 'package:provider/provider.dart';
 import 'data/local/app_database.dart';
 import 'data/clientes_repository.dart';
 import 'data/remote/odoo_service.dart';
+import 'providers/auth_provider.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(
+    ChangeNotifierProvider(
+      create: (context) => AuthProvider(),
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -39,7 +45,6 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
   final _db = TextEditingController(text: 'betat1');
   final _user = TextEditingController(text: 'duvalsoft@gmail.com');
   final _pass = TextEditingController(text: 'Odi1@99TU');
-  int? userId;
   bool loading = false;
   bool syncing = false;
   String? error;
@@ -52,8 +57,6 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
   void initState() {
     super.initState();
     repo = ClientesRepository(AppDatabase(), OdooService());
-    // ✅ CAMBIO: Solo cargar clientes locales si ya hay una sesión activa
-    // NO cargar clientes automáticamente al iniciar
   }
 
   Future<void> _loadLocalClientes() async {
@@ -78,38 +81,27 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
       error = null;
     });
 
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final authProvider = context.read<AuthProvider>();
+
     try {
       debugPrint('🔑 Iniciando login...');
 
-      // PRUEBA DE CONECTIVIDAD PRIMERO
-      debugPrint('🧪 Probando conectividad básica...');
-      try {
-        final testResponse =
-            await http_client.get(Uri.parse(_url.text.trim())).timeout(
-                  const Duration(seconds: 10),
-                );
-        debugPrint('✅ Conectividad OK - Status: ${testResponse.statusCode}');
-      } catch (e) {
-        debugPrint('⚠️ Advertencia en test de conectividad: $e');
-      }
-
-      final uid = await repo.remote.authenticate(
+      final authData = await repo.remote.authenticate(
         url: _url.text.trim(),
         db: _db.text.trim(),
         username: _user.text.trim(),
         password: _pass.text,
       );
 
+      final uid = authData['uid'];
+      final sessionId = authData['session_id'];
+
       debugPrint('✅ Login exitoso - UID: $uid');
 
-      // ✅ CAMBIO: Eliminar la verificación getUserInfo si no es necesaria
-      // O moverla DESPUÉS de asignar el userId
+      authProvider.login(uid, sessionId);
 
-      // Asignar userId primero
-      setState(() => userId = uid);
-
-      // Sincronizar pasando directamente el uid
-      await _syncClientesWithUid(uid);
+      await _syncClientes();
     } catch (e, stackTrace) {
       debugPrint('❌ Error en login: $e');
       debugPrint('Stack: $stackTrace');
@@ -119,57 +111,59 @@ class _OdooClientesPageState extends State<OdooClientesPage> {
         loading = false;
       });
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
     }
   }
 
-  Future<void> _syncClientesWithUid(int uid) async {
+  Future<void> _syncClientes() async {
     setState(() {
       syncing = true;
       error = null;
     });
 
+    final authProvider = context.read<AuthProvider>();
+    if (!authProvider.isLoggedIn) {
+      setState(() {
+        syncing = false;
+      });
+      return;
+    }
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
     try {
-      debugPrint('🔄 Iniciando sincronización con UID: $uid');
+      debugPrint('🔄 Iniciando sincronización con UID: ${authProvider.uid}');
 
       await repo.syncClientes(
         url: _url.text.trim(),
         dbName: _db.text.trim(),
-        userId: uid,
-        password: _pass.text,
+        userId: authProvider.uid!,
+        sessionId: authProvider.sessionId!,
       );
 
       debugPrint('✅ Sincronización completada');
       setState(() => lastSync = DateTime.now());
 
-      // ✅ IMPORTANTE: Solo cargar clientes DESPUÉS de sincronizar exitosamente
       await _loadLocalClientes();
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Sincronización completada'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
+      scaffoldMessenger.showSnackBar(
+        const SnackBar(
+          content: Text('✅ Sincronización completada'),
+          backgroundColor: Colors.green,
+        ),
+      );
     } catch (e, stackTrace) {
       debugPrint('❌ Error sincronizando: $e');
       debugPrint('Stack trace: $stackTrace');
 
       String errorMsg = e.toString();
 
-      // Detectar diferentes tipos de errores
-      if (errorMsg.contains('Access Denied') ||
-          errorMsg.contains('faultCode')) {
+      if (errorMsg.contains('Access Denied') || errorMsg.contains('faultCode')) {
         errorMsg = '''
 ⚠️ ERROR DE PERMISOS EN ODOO
 
@@ -189,36 +183,34 @@ Después vuelve a intentar la sincronización.
 
       setState(() => error = errorMsg);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('❌ Error: ${errorMsg.split('\n')[0]}'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 7),
-            action: SnackBarAction(
-              label: 'Ver detalles',
-              textColor: Colors.white,
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Error de Sincronización'),
-                    content: SingleChildScrollView(
-                      child: Text(errorMsg),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text('Cerrar'),
-                      ),
-                    ],
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('❌ Error: ${errorMsg.split('\n')[0]}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 7),
+          action: SnackBarAction(
+            label: 'Ver detalles',
+            textColor: Colors.white,
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Error de Sincronización'),
+                  content: SingleChildScrollView(
+                    child: Text(errorMsg),
                   ),
-                );
-              },
-            ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Cerrar'),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
-        );
-      }
+        ),
+      );
     } finally {
       setState(() {
         syncing = false;
@@ -227,113 +219,109 @@ Después vuelve a intentar la sincronización.
     }
   }
 
-  Future<void> syncClientes() async {
-    if (userId == null) return;
-    await _syncClientesWithUid(userId!);
-  }
-
   Future<void> _showClienteDialog({Cliente? cliente}) async {
     final nameController = TextEditingController(text: cliente?.name);
     final emailController = TextEditingController(text: cliente?.email);
     final phoneController = TextEditingController(text: cliente?.phone);
     final cityController = TextEditingController(text: cliente?.city);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
 
-    await showDialog(
+    final result = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(cliente == null ? 'Nuevo Cliente' : 'Editar Cliente'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(labelText: 'Nombre *')),
-              const SizedBox(height: 8),
-              TextField(
-                  controller: emailController,
-                  decoration: const InputDecoration(labelText: 'Email')),
-              const SizedBox(height: 8),
-              TextField(
-                  controller: phoneController,
-                  decoration: const InputDecoration(labelText: 'Teléfono')),
-              const SizedBox(height: 8),
-              TextField(
-                  controller: cityController,
-                  decoration: const InputDecoration(labelText: 'Ciudad')),
-            ],
+      builder: (ctx) {
+        final navigator = Navigator.of(ctx);
+        return AlertDialog(
+          title: Text(cliente == null ? 'Nuevo Cliente' : 'Editar Cliente'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(labelText: 'Nombre *')),
+                const SizedBox(height: 8),
+                TextField(
+                    controller: emailController,
+                    decoration: const InputDecoration(labelText: 'Email')),
+                const SizedBox(height: 8),
+                TextField(
+                    controller: phoneController,
+                    decoration: const InputDecoration(labelText: 'Teléfono')),
+                const SizedBox(height: 8),
+                TextField(
+                    controller: cityController,
+                    decoration: const InputDecoration(labelText: 'Ciudad')),
+              ],
+            ),
           ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar')),
-          ElevatedButton(
-            onPressed: () async {
-              if (nameController.text.trim().isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('El nombre es obligatorio')),
-                );
-                return;
-              }
-
-              try {
-                if (cliente == null) {
-                  await repo.createCliente(
-                    nameController.text.trim(),
-                    email: emailController.text.trim().isEmpty
-                        ? null
-                        : emailController.text.trim(),
-                    phone: phoneController.text.trim().isEmpty
-                        ? null
-                        : phoneController.text.trim(),
-                    city: cityController.text.trim().isEmpty
-                        ? null
-                        : cityController.text.trim(),
+          actions: [
+            TextButton(
+                onPressed: () => navigator.pop(false),
+                child: const Text('Cancelar')),
+            ElevatedButton(
+              onPressed: () async {
+                if (nameController.text.trim().isEmpty) {
+                  scaffoldMessenger.showSnackBar(
+                    const SnackBar(content: Text('El nombre es obligatorio')),
                   );
-                } else {
-                  await repo.updateCliente(
-                    cliente.id,
-                    name: nameController.text.trim(),
-                    email: emailController.text.trim().isEmpty
-                        ? null
-                        : emailController.text.trim(),
-                    phone: phoneController.text.trim().isEmpty
-                        ? null
-                        : phoneController.text.trim(),
-                    city: cityController.text.trim().isEmpty
-                        ? null
-                        : cityController.text.trim(),
-                  );
+                  return;
                 }
 
-                await _loadLocalClientes();
-                if (ctx.mounted) Navigator.pop(ctx);
-
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                        content: Text(cliente == null
-                            ? 'Cliente creado'
-                            : 'Cliente actualizado')),
-                  );
-                }
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                try {
+                  if (cliente == null) {
+                    await repo.createCliente(
+                      nameController.text.trim(),
+                      email: emailController.text.trim().isEmpty
+                          ? null
+                          : emailController.text.trim(),
+                      phone: phoneController.text.trim().isEmpty
+                          ? null
+                          : phoneController.text.trim(),
+                      city: cityController.text.trim().isEmpty
+                          ? null
+                          : cityController.text.trim(),
+                    );
+                  } else {
+                    await repo.updateCliente(
+                      cliente.id,
+                      name: nameController.text.trim(),
+                      email: emailController.text.trim().isEmpty
+                          ? null
+                          : emailController.text.trim(),
+                      phone: phoneController.text.trim().isEmpty
+                          ? null
+                          : phoneController.text.trim(),
+                      city: cityController.text.trim().isEmpty
+                          ? null
+                          : cityController.text.trim(),
+                    );
+                  }
+                  navigator.pop(true);
+                } catch (e) {
+                  scaffoldMessenger.showSnackBar(
                     SnackBar(content: Text('Error: $e')),
                   );
                 }
-              }
-            },
-            child: const Text('Guardar'),
-          ),
-        ],
-      ),
+              },
+              child: const Text('Guardar'),
+            ),
+          ],
+        );
+      },
     );
+
+    if (result == true) {
+      await _loadLocalClientes();
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+            content: Text(
+                cliente == null ? 'Cliente creado' : 'Cliente actualizado')),
+      );
+    }
   }
 
   Future<void> _deleteCliente(Cliente cliente) async {
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -357,23 +345,20 @@ Después vuelve a intentar la sincronización.
         await repo.deleteCliente(cliente);
         await _loadLocalClientes();
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Cliente eliminado')),
-          );
-        }
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(content: Text('Cliente eliminado')),
+        );
       } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error al eliminar: $e')),
-          );
-        }
+        scaffoldMessenger.showSnackBar(
+          SnackBar(content: Text('Error al eliminar: $e')),
+        );
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final authProvider = context.watch<AuthProvider>();
     final pendingCount = clientes.where((c) => c.pendingSync).length;
 
     return Scaffold(
@@ -395,7 +380,7 @@ Después vuelve a intentar la sincronización.
                   label: Text('$pendingCount pendientes'),
                   backgroundColor: Colors.orange),
             ),
-          if (userId != null)
+          if (authProvider.isLoggedIn)
             IconButton(
               icon: syncing
                   ? const SizedBox(
@@ -404,7 +389,7 @@ Después vuelve a intentar la sincronización.
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: Colors.white))
                   : const Icon(Icons.sync),
-              onPressed: syncing ? null : syncClientes,
+              onPressed: syncing ? null : _syncClientes,
             ),
         ],
       ),
@@ -412,7 +397,7 @@ Después vuelve a intentar la sincronización.
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            if (userId == null) ...[
+            if (!authProvider.isLoggedIn) ...[
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -470,9 +455,15 @@ Después vuelve a intentar la sincronización.
                 color: Colors.green.shade50,
                 child: ListTile(
                   leading: const Icon(Icons.cloud_done, color: Colors.green),
-                  title: Text('Conectado (UID: $userId)'),
+                  title: Text('Conectado (UID: ${authProvider.uid})'),
                   trailing: TextButton(
-                      onPressed: () => setState(() => userId = null),
+                      onPressed: () {
+                        context.read<AuthProvider>().logout();
+                        setState(() {
+                          clientes = [];
+                          lastSync = null;
+                        });
+                      },
                       child: const Text('Desconectar')),
                 ),
               ),
@@ -526,7 +517,7 @@ Después vuelve a intentar la sincronización.
                                   fontSize: 18, color: Colors.grey.shade600)),
                           const SizedBox(height: 8),
                           Text(
-                            userId == null
+                            !authProvider.isLoggedIn
                                 ? 'Conecta para sincronizar\no crea uno nuevo'
                                 : 'Sincroniza para cargar clientes\no crea uno nuevo',
                             textAlign: TextAlign.center,

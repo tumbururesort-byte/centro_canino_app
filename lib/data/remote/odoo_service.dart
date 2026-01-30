@@ -57,7 +57,7 @@ class OdooService {
   }
 
   // Autenticar
-  Future<int> authenticate({
+  Future<Map<String, dynamic>> authenticate({
     required String url,
     required String db,
     required String username,
@@ -129,11 +129,23 @@ class OdooService {
       final uid = int.parse(match.group(1)!);
       developer.log('✅ Autenticación exitosa - UID: $uid', name: 'OdooService');
       
-      // 🔧 HARDCODED TEMPORAL PARA DEBUG
-      developer.log('⚠️ OVERRIDE: Forzando UID a 2 para testing', name: 'OdooService');
-      return 2; // ← HARDCODED
-      
-      // return uid; // ← Comentado temporalmente
+      // Extraer el session_id de las cookies
+      final rawCookie = response.headers['set-cookie'];
+      String? sessionId;
+      if (rawCookie != null) {
+        final cookie = rawCookie.split(';').firstWhere((c) => c.trim().startsWith('session_id='), orElse: () => '');
+        if (cookie.isNotEmpty) {
+          sessionId = cookie.split('=')[1];
+        }
+      }
+
+      if (sessionId == null) {
+        throw Exception('Error: No se pudo encontrar session_id en la respuesta');
+      }
+
+      developer.log('🔑 Session ID: $sessionId', name: 'OdooService');
+
+      return {'uid': uid, 'session_id': sessionId};
       
     } catch (e) {
       developer.log('❌ EXCEPCIÓN en authenticate: $e', name: 'OdooService');
@@ -156,7 +168,7 @@ class OdooService {
     required String url,
     required String db,
     required int userId,
-    required String password,
+    required String sessionId,
   }) async {
     developer.log('📡 Obteniendo clientes de Odoo...', name: 'OdooService');
     developer.log('URL: $url/xmlrpc/2/object', name: 'OdooService');
@@ -165,14 +177,17 @@ class OdooService {
     final uri = Uri.parse('$url/xmlrpc/2/object');
     final response = await http.post(
       uri,
-      headers: {'Content-Type': 'text/xml'},
+      headers: {
+        'Content-Type': 'text/xml',
+        'Cookie': 'session_id=$sessionId', 
+      },
       body: '''<?xml version="1.0"?>
 <methodCall>
   <methodName>execute_kw</methodName>
   <params>
     <param><value><string>$db</string></value></param>
     <param><value><int>$userId</int></value></param>
-    <param><value><string>$password</string></value></param>
+    <param><value><string></string></value></param> <!-- Password is now empty -->
     <param><value><string>res.partner</string></value></param>
     <param><value><string>search_read</string></value></param>
     <param>
@@ -239,7 +254,7 @@ class OdooService {
     required String url,
     required String db,
     required int userId,
-    required String password,
+    required String sessionId,
     required Map<String, dynamic> data,
   }) async {
     developer.log('➕ Creando cliente en Odoo: ${data['name']}', name: 'OdooService');
@@ -247,14 +262,17 @@ class OdooService {
     final uri = Uri.parse('$url/xmlrpc/2/object');
     final response = await http.post(
       uri,
-      headers: {'Content-Type': 'text/xml'},
+      headers: {
+        'Content-Type': 'text/xml',
+        'Cookie': 'session_id=$sessionId',
+      },
       body: '''<?xml version="1.0"?>
 <methodCall>
   <methodName>execute_kw</methodName>
   <params>
     <param><value><string>$db</string></value></param>
     <param><value><int>$userId</int></value></param>
-    <param><value><string>$password</string></value></param>
+    <param><value><string></string></value></param>
     <param><value><string>res.partner</string></value></param>
     <param><value><string>create</string></value></param>
     <param><value><array><data><value><struct>
@@ -292,7 +310,7 @@ class OdooService {
     required String url,
     required String db,
     required int userId,
-    required String password,
+    required String sessionId,
     required int odooId,
     required Map<String, dynamic> data,
   }) async {
@@ -301,14 +319,17 @@ class OdooService {
     final uri = Uri.parse('$url/xmlrpc/2/object');
     final response = await http.post(
       uri,
-      headers: {'Content-Type': 'text/xml'},
+      headers: {
+        'Content-Type': 'text/xml',
+        'Cookie': 'session_id=$sessionId',
+      },
       body: '''<?xml version="1.0"?>
 <methodCall>
   <methodName>execute_kw</methodName>
   <params>
     <param><value><string>$db</string></value></param>
     <param><value><int>$userId</int></value></param>
-    <param><value><string>$password</string></value></param>
+    <param><value><string></string></value></param>
     <param><value><string>res.partner</string></value></param>
     <param><value><string>write</string></value></param>
     <param><value><array><data>
@@ -341,7 +362,7 @@ class OdooService {
     required String url,
     required String db,
     required int userId,
-    required String password,
+    required String sessionId,
     required int odooId,
   }) async {
     developer.log('🗑️ Eliminando cliente Odoo ID: $odooId', name: 'OdooService');
@@ -349,14 +370,17 @@ class OdooService {
     final uri = Uri.parse('$url/xmlrpc/2/object');
     final response = await http.post(
       uri,
-      headers: {'Content-Type': 'text/xml'},
+      headers: {
+        'Content-Type': 'text/xml',
+        'Cookie': 'session_id=$sessionId',
+      },
       body: '''<?xml version="1.0"?>
 <methodCall>
   <methodName>execute_kw</methodName>
   <params>
     <param><value><string>$db</string></value></param>
     <param><value><int>$userId</int></value></param>
-    <param><value><string>$password</string></value></param>
+    <param><value><string></string></value></param>
     <param><value><string>res.partner</string></value></param>
     <param><value><string>unlink</string></value></param>
     <param><value><array><data><value><array><data>

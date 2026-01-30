@@ -30,13 +30,13 @@ class ClientesRepository {
     required String url,
     required String dbName,
     required int userId,
-    required String password,
+    required String sessionId,
   }) async {
     developer.log('🔄 Iniciando sincronización completa...', name: 'Repository');
     
     // 1. Push: enviar cambios locales
     developer.log('⬆️ PASO 1: Push de cambios locales', name: 'Repository');
-    await _pushLocalChanges(url: url, dbName: dbName, userId: userId, password: password);
+    await _pushLocalChanges(url: url, dbName: dbName, userId: userId, sessionId: sessionId);
 
     // 2. Pull: obtener datos remotos
     developer.log('⬇️ PASO 2: Pull de datos remotos', name: 'Repository');
@@ -44,7 +44,7 @@ class ClientesRepository {
       url: url,
       db: dbName,
       userId: userId,
-      password: password,
+      sessionId: sessionId,
     );
     
     developer.log('📥 Clientes recibidos de Odoo: ${remoteClientes.length}', name: 'Repository');
@@ -64,7 +64,7 @@ class ClientesRepository {
     required String url,
     required String dbName,
     required int userId,
-    required String password,
+    required String sessionId,
   }) async {
     final pending = await db.getPendingSync();
     developer.log('⏳ Clientes pendientes de sincronizar: ${pending.length}', name: 'Repository');
@@ -78,7 +78,7 @@ class ClientesRepository {
             url: url,
             db: dbName,
             userId: userId,
-            password: password,
+            sessionId: sessionId,
             odooId: cliente.odooId!,
           );
           await db.deleteCliente(cliente.id);
@@ -92,7 +92,7 @@ class ClientesRepository {
             url: url,
             db: dbName,
             userId: userId,
-            password: password,
+            sessionId: sessionId,
             data: {
               'name': cliente.name,
               'email': cliente.email,
@@ -117,7 +117,7 @@ class ClientesRepository {
             url: url,
             db: dbName,
             userId: userId,
-            password: password,
+            sessionId: sessionId,
             odooId: cliente.odooId!,
             data: {
               'name': cliente.name,
