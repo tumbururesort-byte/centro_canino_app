@@ -2,6 +2,7 @@
 import 'package:http/http.dart' as http;
 import 'dart:developer' as developer;
 import 'dart:convert'; // Necesario para utf8
+import 'dart:async'; // Necesario para TimeoutException
 
 class OdooService {
   final String serverUrl;
@@ -36,7 +37,7 @@ class OdooService {
         url,
         headers: {'Content-Type': 'application/json'},
         body: requestBody,
-      );
+      ).timeout(const Duration(seconds: 30)); // <-- AÑADIDO TIMEOUT
 
       if (response.statusCode == 200) {
         // Extraer session_id de la cookie
@@ -70,6 +71,9 @@ class OdooService {
         developer.log('❌ Error HTTP ${response.statusCode}: ${response.body}', name: 'OdooService');
         throw Exception('Error de conexión con el servidor: ${response.statusCode}');
       }
+    } on TimeoutException {
+        developer.log('❌ Timeout en la autenticación', name: 'OdooService');
+        throw Exception('El servidor no respondió a tiempo. Verifique la URL y su conexión.');
     } catch (e) {
       developer.log('❌ Excepción en authenticate: $e', name: 'OdooService');
       rethrow;
@@ -96,7 +100,7 @@ class OdooService {
         'Cookie': 'session_id=$_sessionId',
       },
       body: requestBody,
-    );
+    ).timeout(const Duration(seconds: 45)); // <-- AÑADIDO TIMEOUT
     
     if (response.statusCode == 200) {
       final responseData = json.decode(utf8.decode(response.bodyBytes));
@@ -120,7 +124,7 @@ class OdooService {
       'domain': [
         ['customer_rank', '>', 0]
       ],
-      'limit': 200,
+      'limit': false, // << LÍMITE ELIMINADO
       'sort': '',
       'context': {},
     });
