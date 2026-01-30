@@ -1,25 +1,22 @@
 
 import 'package:flutter/material.dart';
+import '../data/remote/odoo_service.dart';
 
 class AuthProvider with ChangeNotifier {
-  int? _uid;
-  String? _sessionId;
-  // Agrega aquí otros datos de sesión que necesites, como el nombre de usuario, etc.
+  OdooService? _odooService;
 
-  int? get uid => _uid;
-  String? get sessionId => _sessionId;
-  bool get isLoggedIn => _uid != null;
+  OdooService? get odooService => _odooService;
+  bool get isLoggedIn => _odooService != null && _odooService!.uid != null;
+  int? get uid => _odooService?.uid;
 
-  void login(int uid, String sessionId) {
-    _uid = uid;
-    _sessionId = sessionId;
-    // Notifica a los listeners que el estado ha cambiado.
+  void login(OdooService service) {
+    _odooService = service;
     notifyListeners();
   }
 
   void logout() {
-    _uid = null;
-    _sessionId = null;
+    _odooService?.dispose(); // Cierra el cliente http
+    _odooService = null;
     notifyListeners();
   }
 }
