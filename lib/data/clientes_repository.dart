@@ -1,121 +1,118 @@
-import 'local/app_database.dart';
-import 'remote/odoo_service.dart';
+
 import 'package:drift/drift.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'remote/odoo_service.dart';
+import 'local/app_database.dart';
+import 'local/dao/clientes_dao.dart';
 import 'dart:developer' as developer;
 
 class ClientesRepository {
-  final AppDatabase db;
+  final OdooService odooService;
+  final ClientesDao clientesDao;
+  final SharedPreferences sharedPreferences;
 
-  // OdooService ya no se pasa en el constructor.
-  ClientesRepository(this.db);
+  // La clave ahora es pÃºblica para ser accesible en los tests
+  static const String lastSyncTimestampKey = 'last_sync_timestamp';
 
-  Future<List<Cliente>> getClientesOffline() async {
-    developer.log('📱 Obteniendo clientes de BD local...', name: 'Repository');
-    final clientes = await db.getClientes();
-    developer.log('📱 Clientes locales: ${clientes.length}', name: 'Repository');
-    return clientes;
+  // Inyectamos SharedPreferences para facilitar las pruebas
+  ClientesRepository({
+    required this.odooService,
+    required this.clientesDao,
+    required this.sharedPreferences,
+  });
+
+  String _sanitizeString(dynamic value, {String defaultValue = ''}) {
+    if (value is String) return value;
+    if (value == false || value == null) return defaultValue;
+    return value.toString();
   }
 
-  // AHORA RECIBE EL SERVICIO AUTENTICADO
-  Future<void> syncClientes({required OdooService remote}) async {
-    developer.log('🔄 Iniciando sincronización completa...', name: 'Repository');
-    
-    // 1. Push: enviar cambios locales
-    developer.log('⬆️ PASO 1: Push de cambios locales', name: 'Repository');
-    await _pushLocalChanges(remote: remote);
-
-    // 2. Pull: obtener datos remotos
-    developer.log('⬇️ PASO 2: Pull de datos remotos', name: 'Repository');
-    final remoteClientes = await remote.fetchClientes(); // SIN PARÁMETROS
-    
-    developer.log('📥 Clientes recibidos de Odoo: ${remoteClientes.length}', name: 'Repository');
-
-    // 3. Actualizar BD local
-    developer.log('💾 PASO 3: Actualizando BD local con datos remotos', name: 'Repository');
-    await db.syncFromRemote(remoteClientes);
-    
-    developer.log('🎉 Sincronización completa finalizada', name: 'Repository');
+  Stream<List<Cliente>> watchClientes() {
+    return clientesDao.watchAllClientes();
   }
 
-  Future<void> _pushLocalChanges({required OdooService remote}) async {
-    final pending = await db.getPendingSync();
-    developer.log('⏳ Clientes pendientes de sincronizar: ${pending.length}', name: 'Repository');
+  Future<void> syncClientes() async {
+    // Usamos la instancia inyectada
+    final prefs = sharedPreferences;
+    DateTime? lastSync;
 
-    for (final cliente in pending) {
-      try {
-        if (cliente.isDeleted && cliente.odooId != null) {
-          developer.log('🗑️ Eliminando cliente remoto: ${cliente.name} (Odoo ID: ${cliente.odooId})', name: 'Repository');
-          await remote.deleteCliente(cliente.odooId!); // SIN PARÁMETROS EXTRA
-          await db.deleteCliente(cliente.id);
-          
-        } else if (cliente.odooId == null) {
-          developer.log('➕ Creando cliente remoto: ${cliente.name}', name: 'Repository');
-          final newOdooId = await remote.createCliente({ // SIN PARÁMETROS EXTRA
-            'name': cliente.name,
-            'email': cliente.email,
-            'phone': cliente.phone,
-            'city': cliente.city,
-          });
-          
-          await db.upsertCliente(ClientesCompanion(
-            id: Value(cliente.id),
-            odooId: Value(newOdooId),
+    final lastSyncString = prefs.getString(lastSyncTimestampKey);
+    if (lastSyncString != null) {
+      lastSync = DateTime.parse(lastSyncString);
+      developer.log('🕒 Última sincronización: $lastSyncString', name: 'ClientesRepository');
+    } else {
+      developer.log('🕒 Primera sincronización.', name: 'ClientesRepository');
+    }
+
+    try {
+      final syncTime = DateTime.now();
+      final clientesFromOdoo = await odooService.fetchClientes(lastSync: lastSync);
+
+      if (clientesFromOdoo.isNotEmpty) {
+        developer.log('💾 Guardando ${clientesFromOdoo.length} clientes...', name: 'ClientesRepository');
+        
+        final clientesToSave = clientesFromOdoo.map((clienteData) {
+          return ClientesCompanion(
+            odooId: Value(clienteData['id'] as int),
+            name: Value(_sanitizeString(clienteData['name'], defaultValue: 'Nombre no disponible')),
+            email: Value(_sanitizeString(clienteData['email'])),
+            phone: Value(_sanitizeString(clienteData['phone'])),
+            city: Value(_sanitizeString(clienteData['city'])),
             pendingSync: const Value(false),
-            lastSync: Value(DateTime.now()),
-          ));
-          
-        } else {
-          developer.log('✏️ Actualizando cliente remoto: ${cliente.name} (Odoo ID: ${cliente.odooId})', name: 'Repository');
-          await remote.updateCliente(cliente.odooId!, { // SIN PARÁMETROS EXTRA
-            'name': cliente.name,
-            'email': cliente.email,
-            'phone': cliente.phone,
-            'city': cliente.city,
-          });
-          
-          await db.upsertCliente(ClientesCompanion(
-            id: Value(cliente.id),
-            pendingSync: const Value(false),
-            lastSync: Value(DateTime.now()),
-          ));
-        }
-      } catch (e) {
-        developer.log('❌ Error procesando cliente ${cliente.name}: $e', name: 'Repository');
+          );
+        });
+
+        // El mÃ©todo correcto es `insertOrUpdateAll`
+        await clientesDao.insertOrUpdateAll(clientesToSave.toList());
+        developer.log('✅ Clientes guardados.', name: 'ClientesRepository');
+      } else {
+        developer.log('👍 No hay clientes nuevos.', name: 'ClientesRepository');
       }
+      
+      await prefs.setString(lastSyncTimestampKey, syncTime.toIso8601String());
+      developer.log('✅ Sincronización finalizada. Nueva marca de tiempo: ${syncTime.toIso8601String()}', name: 'ClientesRepository');
+
+    } catch (e) {
+      developer.log('❌ Error durante la sincronización: $e', name: 'ClientesRepository');
+      rethrow;
     }
   }
 
-  // --- Métodos CRUD locales sin cambios ---
-  Future<void> createCliente(String name, {String? email, String? phone, String? city}) async {
-    developer.log('➕ Creando cliente local: $name', name: 'Repository');
-    await db.upsertCliente(ClientesCompanion.insert(
-      name: name,
-      email: Value(email),
-      phone: Value(phone),
-      city: Value(city),
-      pendingSync: const Value(true),
-    ));
+  Future<void> createCliente(String name, String email, String phone, String city) async {
+    final clienteData = {'name': name, 'email': email, 'phone': phone, 'city': city, 'customer_rank': 1};
+    try {
+      final newOdooId = await odooService.createCliente(clienteData);
+      await clientesDao.insertCliente(ClientesCompanion(
+        odooId: Value(newOdooId),
+        name: Value(name),
+        email: Value(email),
+        phone: Value(phone),
+        city: Value(city),
+      ));
+    } catch (e) {
+      developer.log('❌ Error al crear el cliente: $e', name: 'ClientesRepository');
+      rethrow;
+    }
   }
 
-  Future<void> updateCliente(int id, {required String name, String? email, String? phone, String? city}) async {
-    developer.log('✏️ Actualizando cliente local ID: $id', name: 'Repository');
-    await db.upsertCliente(ClientesCompanion(
-      id: Value(id),
-      name: Value(name),
-      email: Value(email),
-      phone: Value(phone),
-      city: Value(city),
-      pendingSync: const Value(true),
-      updatedAt: Value(DateTime.now()),
-    ));
+  Future<void> updateCliente(Cliente cliente) async {
+    final clienteData = {'name': cliente.name, 'email': cliente.email, 'phone': cliente.phone, 'city': cliente.city};
+    try {
+      await odooService.updateCliente(cliente.odooId!, clienteData);
+      await clientesDao.updateCliente(cliente);
+    } catch (e) {
+      developer.log('❌ Error al actualizar el cliente: $e', name: 'ClientesRepository');
+      rethrow;
+    }
   }
 
   Future<void> deleteCliente(Cliente cliente) async {
-    developer.log('🗑️ Eliminando cliente: ${cliente.name}', name: 'Repository');
-    if (cliente.odooId != null) {
-      await db.markForDeletion(cliente.id);
-    } else {
-      await db.deleteCliente(cliente.id);
+    try {
+      await odooService.deleteCliente(cliente.odooId!);
+      await clientesDao.deleteCliente(cliente);
+    } catch (e) {
+      developer.log('❌ Error al eliminar el cliente: $e', name: 'ClientesRepository');
+      rethrow;
     }
   }
 }

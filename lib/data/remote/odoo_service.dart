@@ -37,10 +37,9 @@ class OdooService {
         url,
         headers: {'Content-Type': 'application/json'},
         body: requestBody,
-      ).timeout(const Duration(seconds: 30)); // <-- AÑADIDO TIMEOUT
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
-        // Extraer session_id de la cookie
         final rawCookie = response.headers['set-cookie'];
         if (rawCookie != null) {
           final cookie = rawCookie.split(';').firstWhere(
@@ -80,7 +79,6 @@ class OdooService {
     }
   }
 
-  // Método genérico para llamadas a Odoo
   Future<dynamic> _executeRpc(String path, String method, Map<String, dynamic> params) async {
     if (_sessionId == null || uid == null) {
       throw Exception('No autenticado. Por favor, inicie sesión primero.');
@@ -100,7 +98,7 @@ class OdooService {
         'Cookie': 'session_id=$_sessionId',
       },
       body: requestBody,
-    ).timeout(const Duration(seconds: 45)); // <-- AÑADIDO TIMEOUT
+    ).timeout(const Duration(seconds: 45));
     
     if (response.statusCode == 200) {
       final responseData = json.decode(utf8.decode(response.bodyBytes));
@@ -115,16 +113,32 @@ class OdooService {
     }
   }
 
-  // Obtener clientes usando el nuevo método RPC
-  Future<List<Map<String, dynamic>>> fetchClientes() async {
-    developer.log('📡 Obteniendo clientes de Odoo...', name: 'OdooService');
+  // MODIFICADO para aceptar una fecha de sincronización
+  Future<List<Map<String, dynamic>>> fetchClientes({DateTime? lastSync}) async {
+    if (lastSync != null) {
+      developer.log('📡 Obteniendo clientes modificados desde ${lastSync.toIso8601String()}...', name: 'OdooService');
+    } else {
+      developer.log('📡 Obteniendo TODOS los clientes de Odoo...', name: 'OdooService');
+    }
+
+    // Construimos el dominio base
+    List<dynamic> domain = [
+      ['customer_rank', '>', 0]
+    ];
+
+    // Si hay una fecha de última sincronización, la añadimos al filtro
+    if (lastSync != null) {
+      // Formateamos la fecha a UTC para Odoo
+      final utcDate = lastSync.toUtc().toIso8601String().split('.')[0];
+      domain.add(['write_date', '>', utcDate]);
+    }
+
     final result = await _executeRpc('/web/dataset/search_read', 'call', {
       'model': 'res.partner',
-      'fields': ['id', 'name', 'email', 'phone', 'city'],
-      'domain': [
-        ['customer_rank', '>', 0]
-      ],
-      'limit': false, // << LÍMITE ELIMINADO
+      // Añadimos 'write_date' para poder filtrar
+      'fields': ['id', 'name', 'email', 'phone', 'city', 'write_date'],
+      'domain': domain,
+      'limit': false,
       'sort': '',
       'context': {},
     });
@@ -137,7 +151,6 @@ class OdooService {
     return [];
   }
 
-  // Crear un cliente
   Future<int> createCliente(Map<String, dynamic> data) async {
     developer.log('➕ Creando cliente en Odoo: ${data['name']}', name: 'OdooService');
     final newId = await _executeRpc('/web/dataset/call_kw/res.partner/create', 'call', {
@@ -150,7 +163,6 @@ class OdooService {
     return newId;
   }
 
-  // Actualizar un cliente
   Future<void> updateCliente(int odooId, Map<String, dynamic> data) async {
     developer.log('✏️ Actualizando cliente Odoo ID: $odooId', name: 'OdooService');
     await _executeRpc('/web/dataset/call_kw/res.partner/write', 'call', {
@@ -162,7 +174,6 @@ class OdooService {
     developer.log('✅ Cliente actualizado.', name: 'OdooService');
   }
 
-  // Eliminar un cliente
   Future<void> deleteCliente(int odooId) async {
     developer.log('🗑️ Eliminando cliente Odoo ID: $odooId', name: 'OdooService');
      await _executeRpc('/web/dataset/call_kw/res.partner/unlink', 'call', {

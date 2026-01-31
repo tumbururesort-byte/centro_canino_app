@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../providers/auth_provider.dart';
 import '../data/remote/odoo_service.dart';
 
@@ -15,21 +16,22 @@ class _LoginPageState extends State<LoginPage> {
   final _db = TextEditingController(text: 'betat1');
   final _user = TextEditingController(text: 'duvalsoft@gmail.com');
   final _pass = TextEditingController(text: 'Odi1@99TU');
-  bool loading = false;
-  String? error;
+  bool _loading = false;
+  String? _error;
 
-  Future<void> login() async {
+  Future<void> _login() async {
+    if (!mounted) return;
+    FocusScope.of(context).unfocus();
+
     setState(() {
-      loading = true;
-      error = null;
+      _loading = true;
+      _error = null;
     });
 
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final authProvider = context.read<AuthProvider>();
 
     try {
-      debugPrint('🔑 Iniciando login...');
-
       final odooService = OdooService(
         serverUrl: _url.text.trim(),
         dbName: _db.text.trim(),
@@ -40,23 +42,19 @@ class _LoginPageState extends State<LoginPage> {
         _pass.text,
       );
       
-      debugPrint('✅ Login exitoso - UID: \${odooService.uid}');
-
       authProvider.login(odooService);
 
-    } catch (e, stackTrace) {
-      debugPrint('❌ Error en login: $e');
-      debugPrint('Stack: $stackTrace');
-
+    } catch (e) {
+      if (!mounted) return;
       setState(() {
-        error = 'Error de conexión: \${e.toString()}';
-        loading = false;
+        _error = e.toString();
+        _loading = false;
       });
 
       scaffoldMessenger.showSnackBar(
         SnackBar(
-          content: Text('Error: \${e.toString()}'),
-          backgroundColor: Colors.red,
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
     } 
@@ -64,80 +62,96 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Inicio de Sesión'),
-      ),
       body: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Card(
-            elevation: 4,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('Configuración Odoo',
-                      style: TextStyle(
-                          fontSize: 22, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 20),
-                  TextField(
-                      controller: _url,
-                      decoration: const InputDecoration(
-                          labelText: 'URL', border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(
-                      controller: _db,
-                      decoration: const InputDecoration(
-                          labelText: 'Base de datos',
-                          border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(
-                      controller: _user,
-                      decoration: const InputDecoration(
-                          labelText: 'Usuario',
-                          border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _pass,
-                    obscureText: true,
-                    decoration: const InputDecoration(
-                        labelText: 'Contraseña',
-                        border: OutlineInputBorder()),
-                    onSubmitted: (_) => login(),
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8)
-                        )
-                      ),
-                      onPressed: loading ? null : login,
-                      child: loading
-                          ? const SizedBox(
-                              width: 24,
-                              height: 24,
-                              child:
-                                  CircularProgressIndicator(strokeWidth: 3, color: Colors.white,))
-                          : const Text('Conectar'),
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.cloud_sync_rounded,
+                size: 80,
+                color: Colors.deepPurple,
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Conectar a Odoo',
+                style: GoogleFonts.oswald(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Inicia sesión para sincronizar tus datos',
+                style: theme.textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
+              _buildTextField(_url, 'URL del Servidor', Icons.dns_rounded),
+              const SizedBox(height: 16),
+              _buildTextField(_db, 'Nombre de la Base de Datos', Icons.storage_rounded),
+              const SizedBox(height: 16),
+              _buildTextField(_user, 'Correo Electrónico', Icons.email_rounded),
+              const SizedBox(height: 16),
+              _buildTextField(_pass, 'Contraseña', Icons.lock_rounded, obscureText: true),
+              const SizedBox(height: 32),
+              if (_error != null) ...[
+                Text(
+                  _error!,
+                  style: TextStyle(color: theme.colorScheme.error, fontSize: 14),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+              ],
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.login_rounded),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)
                     ),
                   ),
-                  if (error != null) ...[
-                    const SizedBox(height: 16),
-                    Text(error!, style: const TextStyle(color: Colors.red, fontSize: 14)),
-                  ]
-                ],
+                  onPressed: _loading ? null : _login,
+                  label: _loading
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white)
+                        )
+                      : const Text('CONECTAR'),
+                ),
               ),
-            ),
+            ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildTextField(TextEditingController controller, String label, IconData icon, {bool obscureText = false}) {
+    return TextField(
+      controller: controller,
+      obscureText: obscureText,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        filled: true,
+        // Usamos el color recomendado por Material 3 para superficies de contenedores
+        fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+      ),
+      onSubmitted: (_) {
+        if (!_loading) _login();
+      },
     );
   }
 }

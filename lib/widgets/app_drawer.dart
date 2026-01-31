@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/navigation_provider.dart';
+import '../providers/theme_provider.dart';
+import '../providers/auth_provider.dart';
 import '../pages/clientes_page.dart';
 
 class AppDrawer extends StatelessWidget {
@@ -9,32 +11,55 @@ class AppDrawer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final navigationProvider = context.read<NavigationProvider>();
+    final themeProvider = context.read<ThemeProvider>();
 
     return Drawer(
-      child: ListView(
-        padding: EdgeInsets.zero,
+      child: Column(
         children: <Widget>[
-          const DrawerHeader(
-            decoration: BoxDecoration(
-              color: Colors.blue,
-            ),
-            child: Text(
-              'Modelos de Odoo',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 24,
-              ),
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: <Widget>[
+                DrawerHeader(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  child: Text(
+                    'Menú',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onPrimary,
+                      fontSize: 24,
+                    ),
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.people),
+                  title: const Text('Clientes'),
+                  onTap: () {
+                    navigationProvider.changePage(const ClientesPage(), 'Clientes');
+                    Navigator.pop(context);
+                  },
+                ),
+              ],
             ),
           ),
+          const Divider(),
           ListTile(
-            leading: const Icon(Icons.people),
-            title: const Text('Clientes'),
+            leading: Icon(themeProvider.themeMode == ThemeMode.dark ? Icons.light_mode : Icons.dark_mode),
+            title: const Text('Cambiar Tema'),
             onTap: () {
-              navigationProvider.changePage(const ClientesPage(), 'Clientes');
-              Navigator.pop(context); // Close the drawer
+              themeProvider.toggleTheme();
             },
           ),
-          // Añadiremos más modelos aquí en el futuro
+          ListTile(
+            leading: const Icon(Icons.logout),
+            title: const Text('Cerrar Sesión'),
+            onTap: () {
+              context.read<AuthProvider>().logout();
+              Navigator.pop(context); // Cierra el drawer
+            },
+          ),
+          const SizedBox(height: 10)
         ],
       ),
     );

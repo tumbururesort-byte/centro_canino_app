@@ -1,44 +1,48 @@
-# Project Blueprint
+# Blueprint de la Aplicación de Clientes
 
-## Overview
+## Visión General
 
-This is an offline-first Flutter application for managing a list of clients. It's designed to synchronize with an Odoo backend, allowing users to create, read, update, and delete client information even when they are not connected to the internet. All changes are stored locally and then pushed to the server when a connection is available.
+Esta aplicación de Flutter está diseñada para gestionar una lista de clientes de forma offline-first. La aplicación se sincroniza con un servidor Odoo para obtener y enviar datos, pero permite a los usuarios ver, crear, editar y eliminar clientes incluso sin conexión a internet. La base de datos local (implementada con `drift`) se encarga de almacenar los datos y sincronizarlos cuando la conexión esté disponible.
 
-## Style, Design, and Features
+## Diseño y Características Implementadas
 
-### Architecture
+### v2.0 (Refactorización y UI - Estado Actual)
 
-*   **Offline-First:** The application is built around the principle of being fully functional without an internet connection. Data is stored locally in a Drift database, and all CRUD operations are performed on this local database first.
-*   **Repository Pattern:** A `ClientesRepository` is used to abstract the data layer from the UI. This repository is responsible for coordinating between the local database and the remote Odoo service.
-*   **MVVM-like Pattern:** The UI is separated from the business logic. The `OdooClientesPage` acts as a ViewModel, holding the state and business logic, while the widgets represent the View.
+*   **Diseño Visual y Tematización (Material 3):**
+    *   La interfaz se ha actualizado a **Material 3** para un look & feel moderno.
+    *   Se utiliza `ColorScheme.fromSeed` para generar una paleta de colores cohesiva y atractiva a partir de un color principal (morado).
+    *   Se ha integrado `google_fonts` para una tipografía más rica y personalizada (`Oswald`, `Roboto`, `Open Sans`).
+    *   **Soporte para Tema Oscuro/Claro:** Se ha implementado un `ThemeProvider` que permite al usuario cambiar entre el modo claro, oscuro o seguir la configuración del sistema. El interruptor se encuentra en el `AppDrawer`.
+    *   **Rediseño de Componentes:**
+        *   La `LoginPage` ha sido rediseñada para ser más atractiva y centrada.
+        *   El `AppDrawer` ha sido actualizado para incluir el interruptor de tema y un botón de cierre de sesión claro.
 
-### State Management
+*   **Arquitectura y Gestión de Estado:**
+    *   **Patrón Repositorio:** Se ha introducido `ClientesRepository`, que abstrae y centraliza toda la lógica de gestión de clientes (remota y local).
+    *   **Separación de la Lógica de UI:** La lógica de estado de la `ClientesPage` ha sido movida a `ClientesProvider`, desacoplando la interfaz de usuario de las operaciones de datos.
+    *   **Flujo de Datos Unidireccional:** El flujo de datos es claro y predecible: `UI (ClientesPage) -> ClientesProvider -> ClientesRepository -> (OdooService | ClientesDao)`.
 
-*   **`setState`:** For this application, `setState` is used for managing the state of the `OdooClientesPage`.
+*   **Base de Datos Local (Drift):**
+    *   Se ha implementado una base de datos local robusta utilizando el paquete `drift`.
+    *   **Singleton de Base de Datos:** `AppDatabase` se ha implementado como un singleton (`AppDatabase.instance`) para garantizar una única conexión en toda la aplicación, evitando inconsistencias.
+    *   **DAO (Data Access Object):** La lógica de las consultas a la base de datos se ha aislado en `ClientesDao`, siguiendo las mejores prácticas de `drift`.
+    *   **Generación de Código:** Se utiliza `build_runner` para generar automáticamente el código necesario para `drift`.
 
-### Data Persistence
+### v1.0 (Base Funcional)
 
-*   **Drift:** Drift is used as the local database to store the client data. It provides a reactive API for watching database queries and automatically updating the UI when the data changes.
+*   **Autenticación:**
+    *   Pantalla de inicio de sesión para conectar con un servidor Odoo.
+    *   `OdooService` gestiona la comunicación (autenticación y llamadas RPC).
+    *   `AuthProvider` gestiona el estado de la sesión del usuario.
 
-### Remote API
+*   **Navegación:**
+    *   `NavigationProvider` gestiona la página visible y el título de la `AppBar`.
+    *   `MainScaffold` es el widget principal con `AppBar`, `Drawer` y búsqueda.
 
-*   **Odoo:** The application communicates with an Odoo backend to synchronize the client data. The `OdooService` class encapsulates the logic for making API calls to the Odoo server.
+## Próximos Pasos
 
-### User Interface
+La aplicación se encuentra en un estado estable y refactorizado. Las próximas iteraciones podrían centrarse en:
 
-*   **Material Design:** The application uses the Material Design library to create a clean and intuitive user interface.
-*   **Connection Status:** The UI clearly indicates whether the application is connected to the Odoo server or not.
-*   **Sync Status:** The UI shows the last sync time and indicates when a sync is in progress.
-*   **Pending Changes:** Clients that have been modified locally but not yet synced to the server are highlighted in the UI.
-
-## Current Task: Initial Setup and Bug Fixing
-
-### Plan and Steps
-
-1.  **Project Renaming:** The project was renamed from `dog_hote` to `myapp`.
-2.  **Dependency Updates:** The `pubspec.yaml` file was updated to reflect the new project name.
-3.  **Import Path Correction:** All import paths in the Dart files were updated to use the new project name.
-4.  **Database Connection:** The `openConnection` method in `lib/data/local/app_database.dart` was implemented.
-5.  **Build Runner:** The `build_runner` was executed to regenerate the Drift database code.
-6.  **Static Analysis:** `flutter analyze` was run to identify and fix any remaining analysis errors.
-7.  **Linting:** The code was linted to remove unused imports and `print` statements.
+*   **Optimización de la Sincronización:** Implementar una estrategia de sincronización en segundo plano o más avanzada.
+*   **Testing:** Añadir tests unitarios y de widgets para asegurar la fiabilidad del código.
+*   **Nuevas Funcionalidades:** Añadir más módulos de Odoo (e.g., Pedidos, Productos).
