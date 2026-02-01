@@ -2,78 +2,46 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/navigation_provider.dart';
+import '../pages/clientes_page.dart';
+import '../pages/profile_page.dart';
 import 'app_drawer.dart';
 
-class MainScaffold extends StatefulWidget {
+class MainScaffold extends StatelessWidget {
   const MainScaffold({super.key});
 
-  @override
-  State<MainScaffold> createState() => _MainScaffoldState();
-}
-
-class _MainScaffoldState extends State<MainScaffold> {
-  bool _isSearching = false;
-  final TextEditingController _searchController = TextEditingController();
-
-  // AppBar en estado normal
-  AppBar _buildNormalAppBar(BuildContext context, NavigationProvider provider) {
-    return AppBar(
-      title: Text(provider.currentPageTitle),
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.search),
-          onPressed: () {
-            setState(() {
-              _isSearching = true;
-            });
-          },
-        ),
-      ],
-    );
+  // Determina el título del AppBar según la página actual
+  String _getCurrentPageTitle(AppPage page) {
+    switch (page) {
+      case AppPage.clientes:
+        return 'Clientes';
+      case AppPage.perfil:
+        return 'Mi Perfil';
+    }
   }
 
-  // AppBar cuando se activa la búsqueda
-  AppBar _buildSearchAppBar(BuildContext context, NavigationProvider provider) {
-    return AppBar(
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_back),
-        onPressed: () {
-          setState(() {
-            _isSearching = false;
-            _searchController.clear();
-            // Notificamos al provider que la búsqueda ha terminado
-            provider.updateSearchQuery('');
-          });
-        },
-      ),
-      title: TextField(
-        controller: _searchController,
-        autofocus: true, // El cursor aparece automáticamente
-        decoration: const InputDecoration(
-          hintText: 'Buscar...',
-          border: InputBorder.none,
-          hintStyle: TextStyle(color: Colors.white70),
-        ),
-        style: const TextStyle(color: Colors.white, fontSize: 18),
-        onChanged: (query) {
-          // Notificamos al provider cada vez que el texto cambia
-          provider.updateSearchQuery(query);
-        },
-      ),
-    );
+  // Devuelve el widget de la página correspondiente
+  Widget _buildCurrentPage(AppPage page) {
+    switch (page) {
+      case AppPage.clientes:
+        return const ClientesPage();
+      case AppPage.perfil:
+        return const ProfilePage();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Usamos 'consumer' para tener acceso tanto al valor como para no redibujar todo
     return Consumer<NavigationProvider>(
       builder: (context, navigationProvider, child) {
+        final currentPage = navigationProvider.currentPage;
+        
         return Scaffold(
-          appBar: _isSearching 
-              ? _buildSearchAppBar(context, navigationProvider)
-              : _buildNormalAppBar(context, navigationProvider),
-          drawer: _isSearching ? null : const AppDrawer(), // Ocultamos el drawer al buscar
-          body: navigationProvider.currentPage,
+          appBar: AppBar(
+            title: Text(_getCurrentPageTitle(currentPage)),
+            // La barra de búsqueda se gestionará dentro de ClentesPage
+          ),
+          drawer: const AppDrawer(),
+          body: _buildCurrentPage(currentPage),
           floatingActionButton: navigationProvider.fabAction == null
               ? null
               : FloatingActionButton(

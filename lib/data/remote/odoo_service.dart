@@ -1,3 +1,4 @@
+
 import 'package:http/http.dart' as http;
 import 'dart:developer' as developer;
 import 'dart:convert'; // Necesario para utf8
@@ -9,6 +10,8 @@ class OdooService {
   late http.Client _client;
   String? _sessionId;
   int? uid;
+  String? userName;
+  String? userLogin;
 
   // GETTERS para acceder al estado
   String get url => serverUrl;
@@ -20,16 +23,18 @@ class OdooService {
   }
 
   // Restaura la sesión desde datos guardados
-  void restoreSession(String newSessionId, int newUid) {
+  void restoreSession(String newSessionId, int newUid, String newUserName, String newUserLogin) {
     _sessionId = newSessionId;
     uid = newUid;
-    developer.log('🔄 Sesión restaurada. UID: $uid, SessionID: $_sessionId', name: 'OdooService');
+    userName = newUserName;
+    userLogin = newUserLogin;
+    developer.log('🔄 Sesión restaurada para $userName. UID: $uid', name: 'OdooService');
   }
 
   // Autenticar y guardar la sesión
   Future<int> authenticate(String username, String password) async {
     final url = Uri.parse('$serverUrl/web/session/authenticate');
-
+    
     final requestBody = json.encode({
       'jsonrpc': '2.0',
       'method': 'call',
@@ -42,7 +47,7 @@ class OdooService {
     });
 
     developer.log('🔐 Autenticando en $url', name: 'OdooService');
-
+    
     try {
       final response = await _client.post(
         url,
@@ -61,7 +66,7 @@ class OdooService {
             _sessionId = cookie.split('=')[1];
           }
         }
-
+        
         final responseData = json.decode(utf8.decode(response.bodyBytes));
 
         if (responseData.containsKey('error')) {
@@ -70,9 +75,13 @@ class OdooService {
             throw Exception('Error de Odoo: ${error['data']['debug']}');
         }
 
-        if (_sessionId != null && responseData['result'] != null && responseData['result']['uid'] != false) {
-          uid = responseData['result']['uid'];
-          developer.log('✅ Autenticación exitosa. UID: $uid, SessionID: $_sessionId', name: 'OdooService');
+        final result = responseData['result'];
+        if (_sessionId != null && result != null && result['uid'] != false) {
+          uid = result['uid'];
+          userName = result['name']; // Guardar nombre de usuario
+          userLogin = result['username']; // Guardar login
+
+          developer.log('✅ Autenticación exitosa para $userName. UID: $uid', name: 'OdooService');
           return uid!;
         } else {
           throw Exception('No se pudo obtener UID o Session ID de la respuesta.');
@@ -110,7 +119,7 @@ class OdooService {
       },
       body: requestBody,
     ).timeout(const Duration(seconds: 45));
-
+    
     if (response.statusCode == 200) {
       final responseData = json.decode(utf8.decode(response.bodyBytes));
       if (responseData.containsKey('error')) {

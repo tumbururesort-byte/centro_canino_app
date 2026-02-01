@@ -23,23 +23,27 @@ class _ClientesView extends StatefulWidget {
 }
 
 class _ClientesViewState extends State<_ClientesView> {
+  // 1. Guardar una referencia al provider para usarla de forma segura en dispose()
+  late NavigationProvider _navProvider;
 
   @override
   void initState() {
     super.initState();
+    // 2. Obtener la referencia al provider de forma segura en initState
+    _navProvider = context.read<NavigationProvider>();
+    
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        context.read<NavigationProvider>().registerFabAction(() => _showClienteDialog());
-        // La llamada a syncClientes() ha sido eliminada de aquí.
+        // Usar la referencia guardada
+        _navProvider.registerFabAction(() => _showClienteDialog());
       }
     });
   }
 
   @override
   void dispose() {
-    if (mounted) {
-      context.read<NavigationProvider>().unregisterFabAction();
-    }
+    // 3. Usar la referencia guardada. No se necesita 'context' ni 'mounted' aquí.
+    _navProvider.unregisterFabAction();
     super.dispose();
   }
 
