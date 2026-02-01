@@ -1,4 +1,3 @@
-
 import 'package:http/http.dart' as http;
 import 'dart:developer' as developer;
 import 'dart:convert'; // Necesario para utf8
@@ -11,14 +10,26 @@ class OdooService {
   String? _sessionId;
   int? uid;
 
+  // GETTERS para acceder al estado
+  String get url => serverUrl;
+  String get db => dbName;
+  String? get sessionId => _sessionId;
+
   OdooService({required this.serverUrl, required this.dbName}) {
     _client = http.Client();
+  }
+
+  // Restaura la sesión desde datos guardados
+  void restoreSession(String newSessionId, int newUid) {
+    _sessionId = newSessionId;
+    uid = newUid;
+    developer.log('🔄 Sesión restaurada. UID: $uid, SessionID: $_sessionId', name: 'OdooService');
   }
 
   // Autenticar y guardar la sesión
   Future<int> authenticate(String username, String password) async {
     final url = Uri.parse('$serverUrl/web/session/authenticate');
-    
+
     final requestBody = json.encode({
       'jsonrpc': '2.0',
       'method': 'call',
@@ -31,7 +42,7 @@ class OdooService {
     });
 
     developer.log('🔐 Autenticando en $url', name: 'OdooService');
-    
+
     try {
       final response = await _client.post(
         url,
@@ -50,7 +61,7 @@ class OdooService {
             _sessionId = cookie.split('=')[1];
           }
         }
-        
+
         final responseData = json.decode(utf8.decode(response.bodyBytes));
 
         if (responseData.containsKey('error')) {
@@ -99,7 +110,7 @@ class OdooService {
       },
       body: requestBody,
     ).timeout(const Duration(seconds: 45));
-    
+
     if (response.statusCode == 200) {
       final responseData = json.decode(utf8.decode(response.bodyBytes));
       if (responseData.containsKey('error')) {

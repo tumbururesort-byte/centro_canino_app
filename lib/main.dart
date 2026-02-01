@@ -1,7 +1,7 @@
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'data/local/app_database.dart';
 import 'data/clientes_repository.dart';
 import 'providers/auth_provider.dart';
@@ -11,7 +11,13 @@ import 'providers/clientes_provider.dart';
 import 'pages/login_page.dart';
 import 'widgets/main_scaffold.dart';
 
-void main() {
+void main() async {
+  // Aseguramos que los bindings de Flutter estén inicializados
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Obtenemos la instancia de SharedPreferences
+  final SharedPreferences sharedPreferences = await SharedPreferences.getInstance();
+
   // Usamos el singleton de la base de datos
   final AppDatabase database = AppDatabase.instance;
 
@@ -19,13 +25,16 @@ void main() {
     MultiProvider(
       providers: [
         Provider.value(value: database), // Para acceso a la BD
-        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        Provider.value(value: sharedPreferences), // Para acceso a SharedPreferences
+        ChangeNotifierProvider(
+          create: (context) => AuthProvider(sharedPreferences: context.read<SharedPreferences>()),
+        ),
         ChangeNotifierProvider(create: (_) => NavigationProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
-        
+
         // ProxyProvider que construye ClientesRepository
-        ProxyProvider<AuthProvider, ClientesRepository>(
-          update: (context, authProvider, previous) {
+        ProxyProvider2<AuthProvider, SharedPreferences, ClientesRepository>(
+          update: (context, authProvider, prefs, previous) {
             // El repositorio ahora depende del OdooService que vive en AuthProvider.
             // Si el usuario no está logueado, authProvider.odooService será null.
             // El acceso a ClientesPage/ClientesProvider está protegido por AuthWrapper,
@@ -33,6 +42,7 @@ void main() {
             return ClientesRepository(
               odooService: authProvider.odooService!,
               clientesDao: database.clientesDao,
+              sharedPreferences: prefs,
             );
           },
         ),
@@ -115,6 +125,9 @@ class AuthWrapper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
+
+    // Intentamos cargar la sesión al inicio
+    authProvider.tryAutoLogin();
 
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 300),
