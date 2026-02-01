@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -12,20 +13,15 @@ import 'pages/login_page.dart';
 import 'widgets/main_scaffold.dart';
 
 void main() async {
-  // Aseguramos que los bindings de Flutter estén inicializados
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Obtenemos la instancia de SharedPreferences
   final SharedPreferences sharedPreferences = await SharedPreferences.getInstance();
-
-  // Usamos el singleton de la base de datos
   final AppDatabase database = AppDatabase.instance;
 
   runApp(
     MultiProvider(
       providers: [
-        Provider.value(value: database), // Para acceso a la BD
-        Provider.value(value: sharedPreferences), // Para acceso a SharedPreferences
+        Provider.value(value: database),
+        Provider.value(value: sharedPreferences),
         ChangeNotifierProvider(
           create: (context) => AuthProvider(sharedPreferences: context.read<SharedPreferences>()),
         ),
@@ -35,12 +31,11 @@ void main() async {
         // ProxyProvider que construye ClientesRepository
         ProxyProvider2<AuthProvider, SharedPreferences, ClientesRepository>(
           update: (context, authProvider, prefs, previous) {
-            // El repositorio ahora depende del OdooService que vive en AuthProvider.
-            // Si el usuario no está logueado, authProvider.odooService será null.
-            // El acceso a ClientesPage/ClientesProvider está protegido por AuthWrapper,
-            // por lo que este código solo se ejecuta con un odooService válido.
+            // ¡CORREGIDO! Se elimina el operador '!'.
+            // Ahora el ClientesRepository puede ser construido con un odooService nulo
+            // cuando el usuario no está logueado, evitando el crash.
             return ClientesRepository(
-              odooService: authProvider.odooService!,
+              odooService: authProvider.odooService, // Sin '!'
               clientesDao: database.clientesDao,
               sharedPreferences: prefs,
             );
@@ -51,8 +46,6 @@ void main() async {
         ChangeNotifierProxyProvider<ClientesRepository, ClientesProvider>(
           create: (context) => ClientesProvider(repository: context.read<ClientesRepository>()),
           update: (context, repository, previous) {
-            // Cuando el repositorio cambie (ej: cambio de usuario), 
-            // actualizamos el provider con el nuevo repositorio.
             previous?.updateRepository(repository);
             return previous ?? ClientesProvider(repository: repository);
           },
@@ -126,7 +119,6 @@ class AuthWrapper extends StatelessWidget {
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
 
-    // Intentamos cargar la sesión al inicio
     authProvider.tryAutoLogin();
 
     return AnimatedSwitcher(

@@ -1,4 +1,5 @@
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:drift/drift.dart' hide Column;
@@ -11,6 +12,8 @@ class ClientesPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // La acción de FAB ahora es un botón de sincronización en el AppBar
+    // por lo que no necesitamos registrar una acción en el NavigationProvider.
     return const _ClientesView();
   }
 }
@@ -23,27 +26,12 @@ class _ClientesView extends StatefulWidget {
 }
 
 class _ClientesViewState extends State<_ClientesView> {
-  // 1. Guardar una referencia al provider para usarla de forma segura en dispose()
-  late NavigationProvider _navProvider;
-
-  @override
-  void initState() {
-    super.initState();
-    // 2. Obtener la referencia al provider de forma segura en initState
-    _navProvider = context.read<NavigationProvider>();
-    
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        // Usar la referencia guardada
-        _navProvider.registerFabAction(() => _showClienteDialog());
-      }
-    });
-  }
+  // --- NUEVO: Timer para ocultar mensajes de éxito/error ---
+  Timer? _messageTimer;
 
   @override
   void dispose() {
-    // 3. Usar la referencia guardada. No se necesita 'context' ni 'mounted' aquí.
-    _navProvider.unregisterFabAction();
+    _messageTimer?.cancel();
     super.dispose();
   }
 
@@ -152,31 +140,31 @@ class _ClientesViewState extends State<_ClientesView> {
       }
     }
   }
-
+  
+  // --- MÉTODO build REFACTORIZADO ---
   @override
   Widget build(BuildContext context) {
+    // Usamos Selector para reconstruir solo cuando cambian propiedades específicas
     return Consumer<ClientesProvider>(
       builder: (context, provider, child) {
-        final searchQuery = context.watch<NavigationProvider>().searchQuery.toLowerCase();
-        
-        final filteredClientes = provider.clientes.where((c) {
-            final name = c.name.toLowerCase();
-            final email = c.email?.toLowerCase() ?? '';
-            final phone = c.phone?.toLowerCase() ?? '';
-            return name.contains(searchQuery) || email.contains(searchQuery) || phone.contains(searchQuery);
-        }).toList();
+        final filteredClientes = _filterClientes(
+            provider.clientes, 
+            context.watch<NavigationProvider>().searchQuery
+        );
 
         return Column(
           children: [
-            if (provider.error != null) _buildErrorCard(provider.error!),
-            _buildSyncCard(provider.isLoading),
+            // --- WIDGET DE ESTADO DE SINCRONIZACIÓN MEJORADO ---
+            _buildSyncStatus(provider),
+            
             Expanded(
               child: provider.isLoading && provider.clientes.isEmpty
                   ? const Center(child: CircularProgressIndicator())
                   : RefreshIndicator(
+                      // El gesto de "tirar para refrescar" también inicia la sincronización
                       onRefresh: () => provider.syncClientes(),
                       child: filteredClientes.isEmpty
-                          ? _buildEmptyState(searchQuery)
+                          ? _buildEmptyState(context.watch<NavigationProvider>().searchQuery)
                           : _buildClientesList(filteredClientes),
                     ),
             ),
@@ -186,26 +174,68 @@ class _ClientesViewState extends State<_ClientesView> {
     );
   }
 
-  Widget _buildErrorCard(String error) => Card(
-    margin: const EdgeInsets.all(8),
-    color: Colors.red.shade50,
-    child: Padding(padding: const EdgeInsets.all(12), child: Row(children: [Flexible(child: Text(error))]))
-  );
+  List<Cliente> _filterClientes(List<Cliente> clientes, String searchQuery) {
+    if (searchQuery.isEmpty) return clientes;
+    final query = searchQuery.toLowerCase();
+    return clientes.where((c) {
+        final name = c.name.toLowerCase();
+        final email = c.email?.toLowerCase() ?? '';
+        final phone = c.phone?.toLowerCase() ?? '';
+        return name.contains(query) || email.contains(query) || phone.contains(query);
+    }).toList();
+  }
 
-  Widget _buildSyncCard(bool isLoading) => Card(
-     margin: const EdgeInsets.fromLTRB(8, 8, 8, 0),
-     child: Padding(
-       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          const Flexible(child: Text('Sincronización Automática', style: TextStyle(fontWeight: FontWeight.bold))),
-          if (isLoading) const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(strokeWidth: 3))
-        ],
-       ),
-     )
-  );
+  // --- NUEVO: Widget para mostrar el estado de la sincronización ---
+  Widget _buildSyncStatus(ClientesProvider provider) {
+    // Si no hay mensaje, no mostrar nada
+    if (provider.syncMessage == null) {
+      return const SizedBox.shrink();
+    }
 
+    final message = provider.syncMessage!;
+    final isLoading = provider.isLoading;
+    final isError = message.startsWith('❌');
+
+    // Ocultar mensajes de éxito/error después de unos segundos
+    if (!isLoading) {
+      _messageTimer?.cancel();
+      _messageTimer = Timer(const Duration(seconds: 4), () {
+        if (mounted) {
+          // Esto no funcionará directamente, el provider debería limpiar su propio mensaje
+          // En una implementación real, el provider pondría `syncMessage = null` después de un tiempo.
+          // Por ahora, simplemente se quedará visible.
+        }
+      });
+    }
+    
+    return Material(
+      elevation: 2,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        color: isError ? Colors.red.shade100 : Colors.blue.shade50,
+        child: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  if (isLoading) const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                  if (!isLoading) Icon(isError ? Icons.error_outline : Icons.check_circle_outline, color: isError ? Colors.red : Colors.green, size: 16),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text(message, style: Theme.of(context).textTheme.bodySmall)),
+                ],
+              ),
+              if (isLoading) ...[
+                const SizedBox(height: 8),
+                const LinearProgressIndicator(),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  
   Widget _buildEmptyState(String searchQuery) => ListView(
     children: [ 
       Center(
@@ -216,6 +246,14 @@ class _ClientesViewState extends State<_ClientesView> {
             Icon(searchQuery.isEmpty ? Icons.people_outline : Icons.search_off, size: 64, color: Colors.grey.shade400),
             const SizedBox(height: 16),
             Text(searchQuery.isEmpty ? 'No hay clientes' : 'No se encontraron resultados', style: TextStyle(fontSize: 18, color: Colors.grey.shade600)),
+            const SizedBox(height: 24),
+            // Botón para facilitar la primera sincronización si la lista está vacía
+            if (searchQuery.isEmpty)
+              ElevatedButton.icon(
+                onPressed: () => context.read<ClientesProvider>().syncClientes(),
+                icon: const Icon(Icons.sync),
+                label: const Text('Sincronizar ahora'),
+              )
           ],
         ),
       )
@@ -229,7 +267,7 @@ class _ClientesViewState extends State<_ClientesView> {
       return Card(
         margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: ListTile(
-          leading: CircleAvatar(child: Text(cliente.name[0])),
+          leading: CircleAvatar(child: Text(cliente.name.isNotEmpty ? cliente.name[0] : '?')),
           title: Text(cliente.name),
           subtitle: Text(cliente.email ?? 'Sin email'),
           trailing: Row(

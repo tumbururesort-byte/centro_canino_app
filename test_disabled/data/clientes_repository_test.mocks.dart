@@ -239,10 +239,66 @@ class MockOdooService extends _i1.Mock implements _i7.OdooService {
       ) as String);
 
   @override
+  String get url => (super.noSuchMethod(
+        Invocation.getter(#url),
+        returnValue: _i8.dummyValue<String>(
+          this,
+          Invocation.getter(#url),
+        ),
+      ) as String);
+
+  @override
+  String get db => (super.noSuchMethod(
+        Invocation.getter(#db),
+        returnValue: _i8.dummyValue<String>(
+          this,
+          Invocation.getter(#db),
+        ),
+      ) as String);
+
+  @override
   set uid(int? value) => super.noSuchMethod(
         Invocation.setter(
           #uid,
           value,
+        ),
+        returnValueForMissingStub: null,
+      );
+
+  @override
+  set userName(String? value) => super.noSuchMethod(
+        Invocation.setter(
+          #userName,
+          value,
+        ),
+        returnValueForMissingStub: null,
+      );
+
+  @override
+  set userLogin(String? value) => super.noSuchMethod(
+        Invocation.setter(
+          #userLogin,
+          value,
+        ),
+        returnValueForMissingStub: null,
+      );
+
+  @override
+  void restoreSession(
+    String? newSessionId,
+    int? newUid,
+    String? newUserName,
+    String? newUserLogin,
+  ) =>
+      super.noSuchMethod(
+        Invocation.method(
+          #restoreSession,
+          [
+            newSessionId,
+            newUid,
+            newUserName,
+            newUserLogin,
+          ],
         ),
         returnValueForMissingStub: null,
       );
@@ -264,12 +320,30 @@ class MockOdooService extends _i1.Mock implements _i7.OdooService {
       ) as _i6.Future<int>);
 
   @override
-  _i6.Future<List<Map<String, dynamic>>> fetchClientes({DateTime? lastSync}) =>
-      (super.noSuchMethod(
+  _i6.Future<int> countClientes({DateTime? lastSync}) => (super.noSuchMethod(
         Invocation.method(
-          #fetchClientes,
+          #countClientes,
           [],
           {#lastSync: lastSync},
+        ),
+        returnValue: _i6.Future<int>.value(0),
+      ) as _i6.Future<int>);
+
+  @override
+  _i6.Future<List<Map<String, dynamic>>> fetchClientesChunk({
+    DateTime? lastSync,
+    required int? limit,
+    required int? offset,
+  }) =>
+      (super.noSuchMethod(
+        Invocation.method(
+          #fetchClientesChunk,
+          [],
+          {
+            #lastSync: lastSync,
+            #limit: limit,
+            #offset: offset,
+          },
         ),
         returnValue: _i6.Future<List<Map<String, dynamic>>>.value(
             <Map<String, dynamic>>[]),

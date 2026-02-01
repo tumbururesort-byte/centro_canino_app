@@ -9,71 +9,70 @@ class ClientesProvider with ChangeNotifier {
   List<Cliente> _clientes = [];
   bool _isLoading = false;
   String? _error;
+  
+  String? _syncMessage;
+
   StreamSubscription? _clientesSubscription;
+  StreamSubscription? _progressSubscription;
 
   ClientesProvider({required ClientesRepository repository}) {
     _repository = repository;
-    // 1. Escuchar los datos de la base de datos local inmediatamente.
     _listenToClientesStream();
-    // 2. Iniciar la sincronizaciÃ³n automÃ¡tica en segundo plano.
-    syncClientes(); 
+    _listenToProgressStream();
+    syncClientes();
   }
 
   List<Cliente> get clientes => _clientes;
   bool get isLoading => _isLoading;
   String? get error => _error;
+  String? get syncMessage => _syncMessage;
 
-  // MÃ©todo para que el ProxyProvider actualice el repositorio
   void updateRepository(ClientesRepository newRepository) {
+    // Primero, nos aseguramos de limpiar los recursos del repositorio antiguo
+    _repository.dispose(); 
+
     _repository = newRepository;
-    // Reinicia la escucha y la sincronizaciÃ³n si el repositorio cambia
+    // Reinicia todas las escuchas con el nuevo repositorio
     _listenToClientesStream();
+    _listenToProgressStream();
     syncClientes(); 
   }
 
   void _listenToClientesStream() {
-    _clientesSubscription?.cancel(); // Cancela la suscripciÃ³n anterior
+    _clientesSubscription?.cancel();
     _clientesSubscription = _repository.watchClientes().listen((clientes) {
       _clientes = clientes;
-      // Solo notificar si no estamos en medio de una operaciÃ³n de carga inicial.
-      // Esto evita un parpadeo en la UI.
       if (!_isLoading) {
         notifyListeners();
       }
     }, onError: (e) {
-      _error = e.toString();
+      _error = 'Error al leer la base de datos: $e';
       _isLoading = false;
       notifyListeners();
     });
   }
 
-  Future<void> syncClientes() async {
-    if (_isLoading) return; // No sincronizar si ya estÃ¡ en proceso
-
-    // Mostrar indicador de carga solo si es la primera vez (no hay clientes).
-    // Las sincronizaciones de fondo serÃ¡n silenciosas.
-    if (_clientes.isEmpty) {
-      _isLoading = true;
-      notifyListeners();
-    }
-
-    _error = null;
-
-    try {
-      await _repository.syncClientes();
-    } catch (e) {
-      // En una app real, podrÃ­as querer registrar este error en un servicio
-      // de logging en lugar de siempre mostrarlo al usuario, para que los fallos
-      // de fondo no sean intrusivos.
-      _error = e.toString();
-    } finally {
-      // Si estÃ¡bamos en el estado de carga inicial, lo desactivamos.
-      if (_isLoading) {
+  void _listenToProgressStream() {
+    _progressSubscription?.cancel();
+    _progressSubscription = _repository.progressStream.listen((message) {
+      _syncMessage = message;
+      final isFinalMessage = message.startsWith('✅') || message.startsWith('❌') || message.startsWith('👍');
+      if (isFinalMessage) {
         _isLoading = false;
+        if (message.startsWith('❌')) {
+          _error = message;
+        }
+      } else {
+        _isLoading = true;
+        _error = null;
       }
-      // Notificamos a la UI para que se actualice con los nuevos datos o el error.
       notifyListeners();
-    }
+    });
+  }
+
+  Future<void> syncClientes() async {
+    if (_isLoading) return;
+    await _repository.syncClientes();
   }
 
   Future<void> createCliente(String name, String email, String phone, String city) async {
@@ -109,6 +108,8 @@ class ClientesProvider with ChangeNotifier {
   @override
   void dispose() {
     _clientesSubscription?.cancel();
+    _progressSubscription?.cancel();
+    _repository.dispose();
     super.dispose();
   }
 }

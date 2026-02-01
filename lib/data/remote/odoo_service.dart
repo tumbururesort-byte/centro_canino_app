@@ -133,39 +133,67 @@ class OdooService {
     }
   }
 
-  // MODIFICADO para aceptar una fecha de sincronización
-  Future<List<Map<String, dynamic>>> fetchClientes({DateTime? lastSync}) async {
-    if (lastSync != null) {
-      developer.log('📡 Obteniendo clientes modificados desde ${lastSync.toIso8601String()}...', name: 'OdooService');
-    } else {
-      developer.log('📡 Obteniendo TODOS los clientes de Odoo...', name: 'OdooService');
-    }
+  // --- NUEVO MÉTODO ---
+  // Cuenta el número de clientes que cumplen con el criterio de sincronización.
+  Future<int> countClientes({DateTime? lastSync}) async {
+    developer.log('🔍 Contando clientes para sincronizar...', name: 'OdooService');
 
-    // Construimos el dominio base
+    // El dominio es idéntico al de fetch para asegurar consistencia
     List<dynamic> domain = [
       ['customer_rank', '>', 0]
     ];
-
-    // Si hay una fecha de última sincronización, la añadimos al filtro
     if (lastSync != null) {
-      // Formateamos la fecha a UTC para Odoo
+      final utcDate = lastSync.toUtc().toIso8601String().split('.')[0];
+      domain.add(['write_date', '>', utcDate]);
+    }
+
+    final result = await _executeRpc('/web/dataset/call_kw/res.partner/search_count', 'call', {
+        'args': [domain],
+        'kwargs': {
+          'context': {},
+        },
+        'model': 'res.partner',
+        'method': 'search_count',
+    });
+
+    developer.log('✅ Conteo finalizado: $result clientes.', name: 'OdooService');
+    return result is int ? result : 0;
+  }
+
+  // --- MODIFICADO ---
+  // Obtiene un "trozo" (chunk) de clientes usando limit y offset.
+  Future<List<Map<String, dynamic>>> fetchClientesChunk({
+    DateTime? lastSync,
+    required int limit,
+    required int offset,
+  }) async {
+    if (lastSync != null) {
+      developer.log('📡 Obteniendo clientes (lote de $limit a partir de $offset) modificados desde ${lastSync.toIso8601String()}...', name: 'OdooService');
+    } else {
+      developer.log('📡 Obteniendo TODOS los clientes de Odoo (lote de $limit a partir de $offset)...', name: 'OdooService');
+    }
+
+    List<dynamic> domain = [
+      ['customer_rank', '>', 0]
+    ];
+    if (lastSync != null) {
       final utcDate = lastSync.toUtc().toIso8601String().split('.')[0];
       domain.add(['write_date', '>', utcDate]);
     }
 
     final result = await _executeRpc('/web/dataset/search_read', 'call', {
       'model': 'res.partner',
-      // Añadimos 'write_date' para poder filtrar
       'fields': ['id', 'name', 'email', 'phone', 'city', 'write_date'],
       'domain': domain,
-      'limit': false,
-      'sort': '',
+      'limit': limit,  // Usar el límite pasado por parámetro
+      'offset': offset, // Usar el offset pasado por parámetro
+      'sort': 'id ASC', // Es buena práctica ordenar para obtener resultados consistentes
       'context': {},
     });
 
     if (result != null && result['records'] is List) {
       final records = List<Map<String, dynamic>>.from(result['records']);
-      developer.log('✅ ${records.length} clientes recibidos.', name: 'OdooService');
+      developer.log('✅ ${records.length} clientes recibidos en este lote.', name: 'OdooService');
       return records;
     }
     return [];
@@ -175,7 +203,9 @@ class OdooService {
     developer.log('➕ Creando cliente en Odoo: ${data['name']}', name: 'OdooService');
     final newId = await _executeRpc('/web/dataset/call_kw/res.partner/create', 'call', {
         'args': [data],
-        'kwargs': {},
+        'kwargs': {
+          'context': {},
+        },
         'model': 'res.partner',
         'method': 'create',
     });
@@ -187,7 +217,9 @@ class OdooService {
     developer.log('✏️ Actualizando cliente Odoo ID: $odooId', name: 'OdooService');
     await _executeRpc('/web/dataset/call_kw/res.partner/write', 'call', {
         'args': [[odooId], data],
-        'kwargs': {},
+        'kwargs': {
+          'context': {},
+        },
         'model': 'res.partner',
         'method': 'write',
     });
@@ -198,7 +230,9 @@ class OdooService {
     developer.log('🗑️ Eliminando cliente Odoo ID: $odooId', name: 'OdooService');
      await _executeRpc('/web/dataset/call_kw/res.partner/unlink', 'call', {
         'args': [[odooId]],
-        'kwargs': {},
+        'kwargs': {
+          'context': {},
+        },
         'model': 'res.partner',
         'method': 'unlink',
     });
