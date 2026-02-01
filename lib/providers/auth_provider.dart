@@ -1,5 +1,4 @@
-
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../data/remote/odoo_service.dart';
 
@@ -8,7 +7,7 @@ class AuthProvider with ChangeNotifier {
   OdooService? _odooService;
 
   OdooService? get odooService => _odooService;
-  bool get isLoggedIn => _odooService != null && _odooService!.uid != null;
+  bool get isLoggedIn => _odooService != null && _odooService!.isUserLoggedIn;
   int? get uid => _odooService?.uid;
   String? get userName => _odooService?.userName;
   String? get userLogin => _odooService?.userLogin;
@@ -17,26 +16,49 @@ class AuthProvider with ChangeNotifier {
   
   bool _autoLoginAttempted = false;
 
+  // Hardcoded server URL for now, can be moved to config later
+  final String _serverUrl = 'https://tumburu.es';
+
   AuthProvider({required this.sharedPreferences});
 
-  Future<void> login(OdooService service) async {
-    _odooService = service;
-    
+  Future<bool> login(String db, String email, String password) async {
+    try {
+      final service = OdooService(serverUrl: _serverUrl, dbName: db);
+      await service.authenticate(email, password);
+
+      if (service.isUserLoggedIn) {
+        _odooService = service;
+        await _saveSession();
+        notifyListeners();
+        return true;
+      } else {
+        _odooService = null;
+        return false;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error during login: $e');
+      }
+      return false;
+    }
+  }
+
+  Future<void> _saveSession() async {
+    if (_odooService == null) return;
+    final service = _odooService!;
     await sharedPreferences.setString('odoo_url', service.url);
     await sharedPreferences.setString('odoo_db', service.dbName);
     await sharedPreferences.setString('odoo_session_id', service.sessionId!);
     await sharedPreferences.setInt('odoo_uid', service.uid!);
     await sharedPreferences.setString('odoo_user_name', service.userName!);
     await sharedPreferences.setString('odoo_user_login', service.userLogin!);
-    
-    notifyListeners();
   }
 
   Future<void> logout() async {
     _odooService?.dispose();
     _odooService = null;
     
-    await sharedPreferences.clear(); // Limpiamos todo por simplicidad
+    await sharedPreferences.clear();
     
     notifyListeners();
   }
