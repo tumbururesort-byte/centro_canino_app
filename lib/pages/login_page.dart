@@ -12,11 +12,13 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
+  final _urlController = TextEditingController(text: 'https://tumburu.es');
   final _dbController = TextEditingController(text: 'betat1');
   final _emailController = TextEditingController(text: 'duvalsoft@gmail.com');
   final _passwordController = TextEditingController(text: 'Odi1@99TU');
 
   bool _isLoading = false;
+  bool _obscureText = true;
 
   Future<void> _login() async {
     if (!_formKey.currentState!.validate() || _isLoading) return;
@@ -30,20 +32,20 @@ class _LoginPageState extends State<LoginPage> {
 
     try {
       final success = await authProvider.login(
+        _urlController.text.trim(),
         _dbController.text.trim(),
         _emailController.text.trim(),
         _passwordController.text,
       );
 
       if (!success) {
-        throw 'Usuario o contraseña incorrectos.';
+        throw 'Credenciales incorrectas o error del servidor.';
       }
-      // La navegación ocurrirá automáticamente gracias al AuthWrapper
     } catch (e) {
       scaffoldMessenger.showSnackBar(
         SnackBar(
-          content: Text('Error: ${e.toString()}'),
-          backgroundColor: Theme.of(context).colorScheme.error,
+          content: Text('Error al iniciar sesión: ${e.toString()}'),
+          backgroundColor: Colors.red.shade800,
         ),
       );
     } finally {
@@ -57,6 +59,7 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   void dispose() {
+    _urlController.dispose();
     _dbController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
@@ -65,159 +68,268 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDarkMode = theme.brightness == Brightness.dark;
-
     return Scaffold(
+      backgroundColor: const Color(0xFF1C1C1E),
       body: GestureDetector(
         onTap: () => FocusScope.of(context).unfocus(),
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: isDarkMode
-                  ? [Colors.grey[900]!, Colors.grey[850]!]
-                  : [theme.colorScheme.primary, Colors.deepPurple.shade300],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _buildHeader(theme),
-                    const SizedBox(height: 32),
-                    _buildLoginForm(theme),
-                  ],
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: constraints.maxHeight,
+                  ),
+                  child: IntrinsicHeight(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                      child: Column(
+                        children: [
+                          const Spacer(flex: 2),
+                          _buildHeader(),
+                          const SizedBox(height: 30),
+                          Form(
+                            key: _formKey,
+                            child: Column(
+                              children: [
+                                _buildCustomTextField(
+                                  controller: _urlController,
+                                  labelText: 'URL DEL SERVIDOR',
+                                  icon: Icons.link_rounded,
+                                  keyboardType: TextInputType.url,
+                                  validator: (value) =>
+                                      value!.isEmpty ? 'La URL no puede estar vacía' : null,
+                                ),
+                                const SizedBox(height: 20),
+                                _buildCustomTextField(
+                                  controller: _dbController,
+                                  labelText: 'BASE DE DATOS',
+                                  icon: Icons.storage_rounded,
+                                  validator: (value) =>
+                                      value!.isEmpty ? 'La base de datos no puede estar vacía' : null,
+                                ),
+                                const SizedBox(height: 20),
+                                _buildCustomTextField(
+                                  controller: _emailController,
+                                  labelText: 'CORREO ELECTRÓNICO',
+                                  icon: Icons.email_outlined,
+                                  keyboardType: TextInputType.emailAddress,
+                                  validator: (value) {
+                                    if (value!.isEmpty) return 'El correo no puede estar vacío';
+                                    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                                      return 'Formato de correo no válido';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 20),
+                                _buildCustomTextField(
+                                  controller: _passwordController,
+                                  labelText: 'CONTRASEÑA',
+                                  icon: Icons.lock_outline_rounded,
+                                  isPassword: true,
+                                  validator: (value) =>
+                                      value!.isEmpty ? 'La contraseña no puede estar vacía' : null,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Spacer(flex: 3),
+                          _buildConnectButton(),
+                          const SizedBox(height: 12),
+                          _buildForgotPasswordLink(),
+                          const Spacer(flex: 1),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ),
       ),
     );
   }
 
-  Widget _buildHeader(ThemeData theme) {
+  Widget _buildHeader() {
     return Column(
       children: [
-        const Icon(
-          Icons.pets_rounded,
-          size: 80,
-          color: Colors.white,
-        ),
-        const SizedBox(height: 16),
-        Text(
-          'Centro Canino',
-          style: GoogleFonts.oswald(
-            fontSize: 42,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-            letterSpacing: 1.2,
+        Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.black.withOpacity(0.3),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFFF37B67).withOpacity(0.3),
+                blurRadius: 10,
+                spreadRadius: 2,
+              ),
+            ],
+            border: Border.all(color: Colors.white12, width: 2),
+          ),
+          child: const Icon(
+            Icons.pets,
+            color: Color(0xFFF37B67),
+            size: 50,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 20),
+        Column(
+          children: [
+            Text(
+              'Tumburú',
+              style: GoogleFonts.heebo(
+                fontSize: 40,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+                letterSpacing: 1.5,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Container(
+              width: 50,
+              height: 3,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(2),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFF37B67), Color(0xFFE84C88)],
+                ),
+              ),
+            )
+          ],
+        ),
+        const SizedBox(height: 12),
         Text(
-          'Bienvenido de nuevo',
-          style: theme.textTheme.titleLarge?.copyWith(color: Colors.white70),
+          'Conecta con tu cuenta para continuar',
+          style: GoogleFonts.heebo(
+            fontSize: 16,
+            color: Colors.white54,
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildLoginForm(ThemeData theme) {
-    return Card(
-      elevation: 8,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          children: [
-            _buildTextFormField(
-              controller: _dbController,
-              labelText: 'Base de Datos',
-              icon: Icons.storage_rounded,
-              validator: (value) => value!.isEmpty ? 'Campo requerido' : null,
-            ),
-            const SizedBox(height: 20),
-            _buildTextFormField(
-              controller: _emailController,
-              labelText: 'Correo Electrónico',
-              icon: Icons.email_outlined,
-              keyboardType: TextInputType.emailAddress,
-              validator: (value) {
-                if (value!.isEmpty) return 'Campo requerido';
-                if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
-                  return 'Introduce un correo válido';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 20),
-            _buildTextFormField(
-              controller: _passwordController,
-              labelText: 'Contraseña',
-              icon: Icons.lock_outline_rounded,
-              obscureText: true,
-              validator: (value) => value!.isEmpty ? 'Campo requerido' : null,
-            ),
-            const SizedBox(height: 32),
-            _buildLoginButton(theme),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTextFormField({
+  Widget _buildCustomTextField({
     required TextEditingController controller,
     required String labelText,
     required IconData icon,
-    bool obscureText = false,
+    bool isPassword = false,
     TextInputType? keyboardType,
     FormFieldValidator<String>? validator,
   }) {
-    return TextFormField(
-      controller: controller,
-      obscureText: obscureText,
-      keyboardType: keyboardType,
-      validator: validator,
-      decoration: InputDecoration(
-        labelText: labelText,
-        prefixIcon: Icon(icon),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          labelText,
+          style: GoogleFonts.heebo(
+            color: Colors.white54,
+            fontWeight: FontWeight.w600,
+            fontSize: 12,
+          ),
         ),
-        filled: true,
-        fillColor: Theme.of(context).colorScheme.surface.withOpacity(0.5),
-      ),
-      onFieldSubmitted: (_) => _login(),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          obscureText: isPassword ? _obscureText : false,
+          keyboardType: keyboardType,
+          validator: validator,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: const Color(0xFF2C2C2E),
+            prefixIcon: Icon(icon, color: Colors.white54, size: 20),
+            suffixIcon: isPassword
+                ? IconButton(
+                    icon: Icon(
+                      _obscureText ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                      color: Colors.white54,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _obscureText = !_obscureText;
+                      });
+                    },
+                  )
+                : null,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFF37B67), width: 1.5),
+            ),
+            contentPadding: const EdgeInsets.symmetric(vertical: 16),
+          ),
+          onFieldSubmitted: (_) => _login(),
+        ),
+      ],
     );
   }
 
-  Widget _buildLoginButton(ThemeData theme) {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton(
-        style: ElevatedButton.styleFrom(
+  Widget _buildConnectButton() {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _isLoading ? null : _login,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          backgroundColor: theme.colorScheme.primary,
-          foregroundColor: theme.colorScheme.onPrimary,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            gradient: const LinearGradient(
+              colors: [Color(0xFFF37B67), Color(0xFFE84C88)],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFFF37B67).withOpacity(0.4),
+                blurRadius: 10,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Center(
+            child: _isLoading
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white),
+                  )
+                : Text(
+                    'CONECTAR',
+                    style: GoogleFonts.heebo(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+          ),
         ),
-        onPressed: _isLoading ? null : _login,
-        child: _isLoading
-            ? const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white),
-              )
-            : Text('INICIAR SESIÓN', style: GoogleFonts.roboto(fontWeight: FontWeight.bold)),
+      ),
+    );
+  }
+
+  Widget _buildForgotPasswordLink() {
+    return TextButton(
+      onPressed: () {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Función no implementada todavía.')),
+        );
+      },
+      child: Text(
+        '¿Olvidaste tu contraseña?',
+        style: GoogleFonts.heebo(
+          color: Colors.white70,
+          fontWeight: FontWeight.w500,
+        ),
       ),
     );
   }

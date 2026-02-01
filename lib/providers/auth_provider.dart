@@ -16,14 +16,13 @@ class AuthProvider with ChangeNotifier {
   
   bool _autoLoginAttempted = false;
 
-  // Hardcoded server URL for now, can be moved to config later
-  final String _serverUrl = 'https://tumburu.es';
-
   AuthProvider({required this.sharedPreferences});
 
-  Future<bool> login(String db, String email, String password) async {
+  // El método login ahora acepta la URL del servidor
+  Future<bool> login(String url, String db, String email, String password) async {
     try {
-      final service = OdooService(serverUrl: _serverUrl, dbName: db);
+      // Se instancia el servicio con la URL y BD proporcionadas
+      final service = OdooService(serverUrl: url, dbName: db);
       await service.authenticate(email, password);
 
       if (service.isUserLoggedIn) {
@@ -39,7 +38,8 @@ class AuthProvider with ChangeNotifier {
       if (kDebugMode) {
         print('Error during login: $e');
       }
-      return false;
+      // Re-throw para que la UI pueda manejarlo
+      throw e;
     }
   }
 
@@ -82,6 +82,7 @@ class AuthProvider with ChangeNotifier {
         _odooService = service;
         notifyListeners();
       } catch (e) {
+        // Si la sesión guardada falla, limpiamos para evitar bucles
         await logout();
       }
     }

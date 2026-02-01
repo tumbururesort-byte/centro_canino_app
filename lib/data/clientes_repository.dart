@@ -12,13 +12,14 @@ class ClientesRepository {
   final ClientesDao clientesDao;
   final SharedPreferences sharedPreferences;
 
-  final _progressStreamController = StreamController<String>.broadcast();
+  // Se cambia a 'var' para poder recrearlo si está cerrado.
+  var _progressStreamController = StreamController<String>.broadcast();
   Stream<String> get progressStream => _progressStreamController.stream;
 
   static const String lastSyncTimestampKey = 'last_sync_timestamp';
 
   ClientesRepository({
-    this.odooService, // OdooService ahora puede ser nulo
+    this.odooService,
     required this.clientesDao,
     required this.sharedPreferences,
   });
@@ -34,6 +35,13 @@ class ClientesRepository {
   }
 
   Future<void> syncClientes() async {
+    // **LA SOLUCIÓN**
+    // Si el stream controller fue cerrado (por un 'dispose' de una instancia anterior),
+    // lo recreamos para evitar el StateError "Cannot add new events after calling close".
+    if (_progressStreamController.isClosed) {
+      _progressStreamController = StreamController<String>.broadcast();
+    }
+
     if (odooService == null) {
       _progressStreamController.add("Sesión no iniciada. No se puede sincronizar.");
       return;
@@ -105,7 +113,10 @@ class ClientesRepository {
   }
 
   void dispose() {
-    _progressStreamController.close();
+    // Se añade una comprobación para no intentar cerrar un stream ya cerrado.
+    if (!_progressStreamController.isClosed) {
+      _progressStreamController.close();
+    }
   }
 
   Future<void> createCliente(String name, String email, String phone, String city) async {

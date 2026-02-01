@@ -12,8 +12,6 @@ class ClientesPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // La acción de FAB ahora es un botón de sincronización en el AppBar
-    // por lo que no necesitamos registrar una acción en el NavigationProvider.
     return const _ClientesView();
   }
 }
@@ -26,7 +24,6 @@ class _ClientesView extends StatefulWidget {
 }
 
 class _ClientesViewState extends State<_ClientesView> {
-  // --- NUEVO: Timer para ocultar mensajes de éxito/error ---
   Timer? _messageTimer;
 
   @override
@@ -141,10 +138,8 @@ class _ClientesViewState extends State<_ClientesView> {
     }
   }
   
-  // --- MÉTODO build REFACTORIZADO ---
   @override
   Widget build(BuildContext context) {
-    // Usamos Selector para reconstruir solo cuando cambian propiedades específicas
     return Consumer<ClientesProvider>(
       builder: (context, provider, child) {
         final filteredClientes = _filterClientes(
@@ -154,14 +149,12 @@ class _ClientesViewState extends State<_ClientesView> {
 
         return Column(
           children: [
-            // --- WIDGET DE ESTADO DE SINCRONIZACIÓN MEJORADO ---
             _buildSyncStatus(provider),
             
             Expanded(
               child: provider.isLoading && provider.clientes.isEmpty
                   ? const Center(child: CircularProgressIndicator())
                   : RefreshIndicator(
-                      // El gesto de "tirar para refrescar" también inicia la sincronización
                       onRefresh: () => provider.syncClientes(),
                       child: filteredClientes.isEmpty
                           ? _buildEmptyState(context.watch<NavigationProvider>().searchQuery)
@@ -185,9 +178,7 @@ class _ClientesViewState extends State<_ClientesView> {
     }).toList();
   }
 
-  // --- NUEVO: Widget para mostrar el estado de la sincronización ---
   Widget _buildSyncStatus(ClientesProvider provider) {
-    // Si no hay mensaje, no mostrar nada
     if (provider.syncMessage == null) {
       return const SizedBox.shrink();
     }
@@ -196,14 +187,11 @@ class _ClientesViewState extends State<_ClientesView> {
     final isLoading = provider.isLoading;
     final isError = message.startsWith('❌');
 
-    // Ocultar mensajes de éxito/error después de unos segundos
     if (!isLoading) {
       _messageTimer?.cancel();
       _messageTimer = Timer(const Duration(seconds: 4), () {
         if (mounted) {
-          // Esto no funcionará directamente, el provider debería limpiar su propio mensaje
-          // En una implementación real, el provider pondría `syncMessage = null` después de un tiempo.
-          // Por ahora, simplemente se quedará visible.
+          // Implementación futura: El provider debería limpiar su propio mensaje.
         }
       });
     }
@@ -247,7 +235,6 @@ class _ClientesViewState extends State<_ClientesView> {
             const SizedBox(height: 16),
             Text(searchQuery.isEmpty ? 'No hay clientes' : 'No se encontraron resultados', style: TextStyle(fontSize: 18, color: Colors.grey.shade600)),
             const SizedBox(height: 24),
-            // Botón para facilitar la primera sincronización si la lista está vacía
             if (searchQuery.isEmpty)
               ElevatedButton.icon(
                 onPressed: () => context.read<ClientesProvider>().syncClientes(),
@@ -269,7 +256,8 @@ class _ClientesViewState extends State<_ClientesView> {
         child: ListTile(
           leading: CircleAvatar(child: Text(cliente.name.isNotEmpty ? cliente.name[0] : '?')),
           title: Text(cliente.name),
-          subtitle: Text(cliente.email ?? 'Sin email'),
+          // --- CAMBIO PRINCIPAL AQUÍ ---
+          subtitle: Text(cliente.phone?.isNotEmpty == true ? cliente.phone! : 'Sin teléfono'),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
