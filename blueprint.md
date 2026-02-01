@@ -6,7 +6,18 @@ Esta aplicación de Flutter está diseñada para gestionar una lista de clientes
 
 ## Diseño y Características Implementadas
 
-### v2.0 (Refactorización y UI - Estado Actual)
+### v2.1 (Correcciones y Mejoras de UI)
+
+*   **Restauración de la Funcionalidad de Búsqueda:**
+    *   Se ha re-implementado la barra de búsqueda dinámica en la `AppBar` de la página de clientes.
+    *   Al pulsar el icono de la lupa, el título se transforma en un campo de texto para buscar clientes en tiempo real.
+    *   La gestión del estado de la búsqueda (`isSearchActive`) se ha centralizado en el `NavigationProvider`.
+*   **Corrección en la Visualización de Teléfonos:**
+    *   Se ha solucionado el problema por el cual no se mostraba el número de teléfono móvil de los clientes.
+    *   La lógica de sincronización ahora prioriza el campo `mobile` de Odoo sobre el campo `phone`, asegurando que el número correcto sea visible.
+    *   Al crear o editar un cliente desde la app, el teléfono se guarda ahora en el campo `mobile` de Odoo para mantener la consistencia.
+
+### v2.0 (Refactorización y UI)
 
 *   **Diseño Visual y Tematización (Material 3):**
     *   La interfaz se ha actualizado a **Material 3** para un look & feel moderno.
