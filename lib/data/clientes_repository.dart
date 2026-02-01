@@ -12,7 +12,6 @@ class ClientesRepository {
   final ClientesDao clientesDao;
   final SharedPreferences sharedPreferences;
 
-  // Se cambia a 'var' para poder recrearlo si está cerrado.
   var _progressStreamController = StreamController<String>.broadcast();
   Stream<String> get progressStream => _progressStreamController.stream;
 
@@ -35,9 +34,6 @@ class ClientesRepository {
   }
 
   Future<void> syncClientes() async {
-    // **LA SOLUCIÓN**
-    // Si el stream controller fue cerrado (por un 'dispose' de una instancia anterior),
-    // lo recreamos para evitar el StateError "Cannot add new events after calling close".
     if (_progressStreamController.isClosed) {
       _progressStreamController = StreamController<String>.broadcast();
     }
@@ -84,11 +80,17 @@ class ClientesRepository {
 
         if (clientesFromOdoo.isNotEmpty) {
           final clientesToSave = clientesFromOdoo.map((clienteData) {
+            // **LA SOLUCIÓN**
+            // Priorizamos 'mobile' sobre 'phone'.
+            final mobile = _sanitizeString(clienteData['mobile']);
+            final phone = _sanitizeString(clienteData['phone']);
+            final telefonoFinal = mobile.isNotEmpty ? mobile : phone;
+
             return ClientesCompanion(
               odooId: Value(clienteData['id'] as int),
               name: Value(_sanitizeString(clienteData['name'], defaultValue: 'Nombre no disponible')),
               email: Value(_sanitizeString(clienteData['email'])),
-              phone: Value(_sanitizeString(clienteData['phone'])),
+              phone: Value(telefonoFinal), // Usamos el teléfono final
               city: Value(_sanitizeString(clienteData['city'])),
               pendingSync: const Value(false),
             );
@@ -113,7 +115,6 @@ class ClientesRepository {
   }
 
   void dispose() {
-    // Se añade una comprobación para no intentar cerrar un stream ya cerrado.
     if (!_progressStreamController.isClosed) {
       _progressStreamController.close();
     }
@@ -121,7 +122,8 @@ class ClientesRepository {
 
   Future<void> createCliente(String name, String email, String phone, String city) async {
     if (odooService == null) throw Exception("Servicio Odoo no disponible");
-    final clienteData = {'name': name, 'email': email, 'phone': phone, 'city': city, 'customer_rank': 1};
+    // Al crear un cliente, asumimos que el teléfono que nos dan es el móvil.
+    final clienteData = {'name': name, 'email': email, 'mobile': phone, 'city': city, 'customer_rank': 1};
     try {
       final newOdooId = await odooService!.createCliente(clienteData);
       await clientesDao.insertCliente(ClientesCompanion(
@@ -139,7 +141,8 @@ class ClientesRepository {
 
   Future<void> updateCliente(Cliente cliente) async {
     if (odooService == null) throw Exception("Servicio Odoo no disponible");
-    final clienteData = {'name': cliente.name, 'email': cliente.email, 'phone': cliente.phone, 'city': cliente.city};
+    // Al actualizar, también enviamos el teléfono al campo 'mobile' de Odoo.
+    final clienteData = {'name': cliente.name, 'email': cliente.email, 'mobile': cliente.phone, 'city': cliente.city};
     try {
       await odooService!.updateCliente(cliente.odooId!, clienteData);
       await clientesDao.updateCliente(cliente);

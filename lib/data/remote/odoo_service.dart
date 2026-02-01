@@ -171,7 +171,7 @@ class OdooService {
 
     final result = await _executeRpc('/web/dataset/search_read', 'call', {
       'model': 'res.partner',
-      'fields': ['id', 'name', 'email', 'phone', 'city', 'write_date'],
+      'fields': ['id', 'name', 'email', 'phone', 'mobile', 'city', 'write_date'],
       'domain': domain,
       'limit': limit,
       'offset': offset,

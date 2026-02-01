@@ -257,7 +257,7 @@ class _ClientesViewState extends State<_ClientesView> {
           leading: CircleAvatar(child: Text(cliente.name.isNotEmpty ? cliente.name[0] : '?')),
           title: Text(cliente.name),
           // --- CAMBIO PRINCIPAL AQUÍ ---
-          subtitle: Text(cliente.phone?.isNotEmpty == true ? cliente.phone! : 'Sin teléfono'),
+          subtitle: Text(cliente.phone?.isNotEmpty == true ? cliente.phone! : ''),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
