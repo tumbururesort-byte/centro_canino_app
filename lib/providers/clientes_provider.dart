@@ -3,20 +3,39 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:myapp/data/clientes_repository.dart';
 import 'package:myapp/data/local/app_database.dart';
+import 'package:myapp/providers/auth_provider.dart';
 
 class ClientesProvider with ChangeNotifier {
   late ClientesRepository _repository;
+  final AuthProvider _authProvider;
+
   List<Cliente> _clientes = [];
   bool _isLoading = false;
   String? _error;
-  
   String? _syncMessage;
 
   StreamSubscription? _clientesSubscription;
   StreamSubscription? _progressSubscription;
+  StreamSubscription? _authSubscription;
 
-  ClientesProvider({required ClientesRepository repository}) {
-    _repository = repository;
+  ClientesProvider({
+    required ClientesRepository repository,
+    required AuthProvider authProvider,
+  })  : _repository = repository,
+        _authProvider = authProvider {
+    _authSubscription = _authProvider.onAuthChanged.listen((isLoggedIn) {
+      if (isLoggedIn) {
+        _initialize();
+      } else {
+        _clearData();
+      }
+    });
+    if (_authProvider.isLoggedIn) {
+      _initialize();
+    }
+  }
+
+  void _initialize() {
     _listenToClientesStream();
     _listenToProgressStream();
     syncClientes();
@@ -27,15 +46,15 @@ class ClientesProvider with ChangeNotifier {
   String? get error => _error;
   String? get syncMessage => _syncMessage;
 
-  void updateRepository(ClientesRepository newRepository) {
-    // Primero, nos aseguramos de limpiar los recursos del repositorio antiguo
-    _repository.dispose(); 
-
-    _repository = newRepository;
-    // Reinicia todas las escuchas con el nuevo repositorio
-    _listenToClientesStream();
-    _listenToProgressStream();
-    syncClientes(); 
+  void updateDependencies(ClientesRepository newRepository, AuthProvider newAuthProvider) {
+    if (_repository != newRepository) {
+      _repository.dispose();
+      _repository = newRepository;
+      
+      if (newAuthProvider.isLoggedIn) {
+        _initialize();
+      }
+    }
   }
 
   void _listenToClientesStream() {
@@ -71,7 +90,7 @@ class ClientesProvider with ChangeNotifier {
   }
 
   Future<void> syncClientes() async {
-    if (_isLoading) return;
+    if (_isLoading || !_authProvider.isLoggedIn) return;
     await _repository.syncClientes();
   }
 
@@ -105,10 +124,21 @@ class ClientesProvider with ChangeNotifier {
     }
   }
 
+  void _clearData() {
+    _clientesSubscription?.cancel();
+    _progressSubscription?.cancel();
+    _clientes = [];
+    _isLoading = false;
+    _error = null;
+    _syncMessage = null;
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     _clientesSubscription?.cancel();
     _progressSubscription?.cancel();
+    _authSubscription?.cancel();
     _repository.dispose();
     super.dispose();
   }

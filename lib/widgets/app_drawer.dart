@@ -14,6 +14,7 @@ class AppDrawer extends StatelessWidget {
     final authProvider = context.watch<AuthProvider>();
     final navigationProvider = context.read<NavigationProvider>();
     final themeProvider = context.read<ThemeProvider>();
+    final theme = Theme.of(context);
 
     return Drawer(
       child: Column(
@@ -25,14 +26,27 @@ class AppDrawer extends StatelessWidget {
                 UserAccountsDrawerHeader(
                   accountName: Text(
                     authProvider.userName ?? 'Usuario',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.onPrimary,
+                    )
                   ),
-                  accountEmail: Text(authProvider.userLogin ?? 'email@example.com'),
+                  accountEmail: Text(
+                    authProvider.userLogin ?? 'email@example.com',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onPrimary,
+                    )
+                  ),
                   currentAccountPicture: CircleAvatar(
-                    child: Icon(Icons.person, size: 40),
+                    backgroundColor: theme.colorScheme.onPrimary,
+                    child: Icon(
+                      Icons.person,
+                      size: 40,
+                      color: theme.colorScheme.primary,
+                    ),
                   ),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary,
+                    color: theme.colorScheme.primary,
                   ),
                 ),
                 
@@ -76,16 +90,21 @@ class AppDrawer extends StatelessWidget {
     required AppPage page,
     required bool isSelected,
   }) {
+    final theme = Theme.of(context);
     return ListTile(
       leading: Icon(icon),
-      title: Text(title, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+      title: Text(
+        title,
+        style: theme.textTheme.titleMedium?.copyWith(
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
       onTap: () {
         context.read<NavigationProvider>().changePage(page);
         Navigator.pop(context); // Cierra el drawer
       },
       selected: isSelected,
-      // Usamos withAlpha para la opacidad, que es la forma moderna
-      selectedTileColor: Theme.of(context).colorScheme.primary.withAlpha((255 * 0.1).round()),
+      selectedTileColor: theme.colorScheme.primary.withOpacity(0.1),
     );
   }
 }

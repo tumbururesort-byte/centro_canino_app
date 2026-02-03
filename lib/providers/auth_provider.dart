@@ -1,3 +1,5 @@
+
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../data/remote/odoo_service.dart';
@@ -5,6 +7,9 @@ import '../data/remote/odoo_service.dart';
 class AuthProvider with ChangeNotifier {
   final SharedPreferences sharedPreferences;
   OdooService? _odooService;
+
+  final _authChangeController = StreamController<bool>.broadcast();
+  Stream<bool> get onAuthChanged => _authChangeController.stream;
 
   OdooService? get odooService => _odooService;
   bool get isLoggedIn => _odooService != null && _odooService!.isUserLoggedIn;
@@ -18,10 +23,8 @@ class AuthProvider with ChangeNotifier {
 
   AuthProvider({required this.sharedPreferences});
 
-  // El método login ahora acepta la URL del servidor
   Future<bool> login(String url, String db, String email, String password) async {
     try {
-      // Se instancia el servicio con la URL y BD proporcionadas
       final service = OdooService(serverUrl: url, dbName: db);
       await service.authenticate(email, password);
 
@@ -29,6 +32,7 @@ class AuthProvider with ChangeNotifier {
         _odooService = service;
         await _saveSession();
         notifyListeners();
+        _authChangeController.add(true);
         return true;
       } else {
         _odooService = null;
@@ -38,8 +42,7 @@ class AuthProvider with ChangeNotifier {
       if (kDebugMode) {
         print('Error during login: $e');
       }
-      // Re-throw para que la UI pueda manejarlo
-      throw e;
+      rethrow;
     }
   }
 
@@ -61,6 +64,7 @@ class AuthProvider with ChangeNotifier {
     await sharedPreferences.clear();
     
     notifyListeners();
+    _authChangeController.add(false);
   }
 
   Future<void> tryAutoLogin() async {
@@ -81,10 +85,17 @@ class AuthProvider with ChangeNotifier {
 
         _odooService = service;
         notifyListeners();
+        _authChangeController.add(true);
       } catch (e) {
-        // Si la sesión guardada falla, limpiamos para evitar bucles
         await logout();
       }
     }
+  }
+
+  @override
+  void dispose() {
+    _authChangeController.close();
+    _odooService?.dispose();
+    super.dispose();
   }
 }

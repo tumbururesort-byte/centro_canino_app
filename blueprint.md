@@ -1,59 +1,49 @@
-# Blueprint de la Aplicación de Clientes
+# Project Blueprint
 
-## Visión General
+## Overview
 
-Esta aplicación de Flutter está diseñada para gestionar una lista de clientes de forma offline-first. La aplicación se sincroniza con un servidor Odoo para obtener y enviar datos, pero permite a los usuarios ver, crear, editar y eliminar clientes incluso sin conexión a internet. La base de datos local (implementada con `drift`) se encarga de almacenar los datos y sincronizarlos cuando la conexión esté disponible.
+This document outlines the structure, features, and design of the Tumburú mobile application. The application is built with Flutter and utilizes a provider-based architecture for state management. The primary goal of this project is to provide a clean, organized, and scalable codebase that is easy to maintain and extend.
 
-## Diseño y Características Implementadas
+## Project Structure
 
-### v2.1 (Correcciones y Mejoras de UI)
+The project is organized into the following directories:
 
-*   **Restauración de la Funcionalidad de Búsqueda:**
-    *   Se ha re-implementado la barra de búsqueda dinámica en la `AppBar` de la página de clientes.
-    *   Al pulsar el icono de la lupa, el título se transforma en un campo de texto para buscar clientes en tiempo real.
-    *   La gestión del estado de la búsqueda (`isSearchActive`) se ha centralizado en el `NavigationProvider`.
-*   **Corrección en la Visualización de Teléfonos:**
-    *   Se ha solucionado el problema por el cual no se mostraba el número de teléfono móvil de los clientes.
-    *   La lógica de sincronización ahora prioriza el campo `mobile` de Odoo sobre el campo `phone`, asegurando que el número correcto sea visible.
-    *   Al crear o editar un cliente desde la app, el teléfono se guarda ahora en el campo `mobile` de Odoo para mantener la consistencia.
+*   `lib/`: Contains the main application code.
+    *   `api/`: Handles communication with the Tumburú API.
+    *   `data/`: Manages the application's data, including the local database.
+    *   `models/`: Defines the data models used throughout the application.
+    *   `pages/`: Contains the application's pages or screens.
+    *   `providers/`: Contains the application's providers for state management.
+    *   `theme/`: Defines the application's theme and styles.
+    *   `widgets/`: Contains reusable widgets used throughout the application.
+*   `test/`: Contains the application's tests.
 
-### v2.0 (Refactorización y UI)
+## Implemented Features
 
-*   **Diseño Visual y Tematización (Material 3):**
-    *   La interfaz se ha actualizado a **Material 3** para un look & feel moderno.
-    *   Se utiliza `ColorScheme.fromSeed` para generar una paleta de colores cohesiva y atractiva a partir de un color principal (morado).
-    *   Se ha integrado `google_fonts` para una tipografía más rica y personalizada (`Oswald`, `Roboto`, `Open Sans`).
-    *   **Soporte para Tema Oscuro/Claro:** Se ha implementado un `ThemeProvider` que permite al usuario cambiar entre el modo claro, oscuro o seguir la configuración del sistema. El interruptor se encuentra en el `AppDrawer`.
-    *   **Rediseño de Componentes:**
-        *   La `LoginPage` ha sido rediseñada para ser más atractiva y centrada.
-        *   El `AppDrawer` ha sido actualizado para incluir el interruptor de tema y un botón de cierre de sesión claro.
+The following features have been implemented in the application:
 
-*   **Arquitectura y Gestión de Estado:**
-    *   **Patrón Repositorio:** Se ha introducido `ClientesRepository`, que abstrae y centraliza toda la lógica de gestión de clientes (remota y local).
-    *   **Separación de la Lógica de UI:** La lógica de estado de la `ClientesPage` ha sido movida a `ClientesProvider`, desacoplando la interfaz de usuario de las operaciones de datos.
-    *   **Flujo de Datos Unidireccional:** El flujo de datos es claro y predecible: `UI (ClientesPage) -> ClientesProvider -> ClientesRepository -> (OdooService | ClientesDao)`.
+*   **Authentication:** Users can log in to the application using their Tumburú credentials.
+*   **Client Management:** Users can view, create, edit, and delete clients.
+*   **Profile Management:** Users can view their profile information and log out of the application.
+*   **Theme Management:** Users can switch between light and dark themes.
+*   **Search:** Users can search for clients by name, email, or phone number.
 
-*   **Base de Datos Local (Drift):**
-    *   Se ha implementado una base de datos local robusta utilizando el paquete `drift`.
-    *   **Singleton de Base de Datos:** `AppDatabase` se ha implementado como un singleton (`AppDatabase.instance`) para garantizar una única conexión en toda la aplicación, evitando inconsistencias.
-    *   **DAO (Data Access Object):** La lógica de las consultas a la base de datos se ha aislado en `ClientesDao`, siguiendo las mejores prácticas de `drift`.
-    *   **Generación de Código:** Se utiliza `build_runner` para generar automáticamente el código necesario para `drift`.
+## Design and Theming
 
-### v1.0 (Base Funcional)
+The application uses a custom theme that is defined in the `lib/theme/app_theme.dart` file. The theme is based on the Material Design guidelines and provides a consistent look and feel throughout the application. The theme is also used to manage the application's colors, fonts, and other styles.
 
-*   **Autenticación:**
-    *   Pantalla de inicio de sesión para conectar con un servidor Odoo.
-    *   `OdooService` gestiona la comunicación (autenticación y llamadas RPC).
-    *   `AuthProvider` gestiona el estado de la sesión del usuario.
+## Refactoring of Hardcoded Styles
 
-*   **Navegación:**
-    *   `NavigationProvider` gestiona la página visible y el título de la `AppBar`.
-    *   `MainScaffold` es el widget principal con `AppBar`, `Drawer` y búsqueda.
+All hardcoded styles have been removed from the application and replaced with the appropriate `Theme.of(context)` properties. This ensures that the UI updates correctly when the theme changes and that the codebase is clean and organized.
 
-## Próximos Pasos
+The following files were refactored:
 
-La aplicación se encuentra en un estado estable y refactorizado. Las próximas iteraciones podrían centrarse en:
+*   `lib/pages/login_page.dart`
+*   `lib/pages/cliente_edit_page.dart`
+*   `lib/pages/clientes_page.dart`
+*   `lib/pages/profile_page.dart`
+*   `lib/widgets/app_drawer.dart`
+*   `lib/widgets/cliente_list_item.dart`
+*   `lib/widgets/main_scaffold.dart`
 
-*   **Optimización de la Sincronización:** Implementar una estrategia de sincronización en segundo plano o más avanzada.
-*   **Testing:** Añadir tests unitarios y de widgets para asegurar la fiabilidad del código.
-*   **Nuevas Funcionalidades:** Añadir más módulos de Odoo (e.g., Pedidos, Productos).
+This refactoring ensures that the application is scalable and easy to maintain. It also makes it easier to add new features and themes to the application in the future.

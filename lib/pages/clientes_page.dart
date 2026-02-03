@@ -2,8 +2,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:drift/drift.dart' hide Column;
 import 'package:myapp/data/local/app_database.dart';
+import 'package:myapp/pages/cliente_edit_page.dart';
 import 'package:myapp/providers/clientes_provider.dart';
 import 'package:myapp/providers/navigation_provider.dart';
 
@@ -14,6 +14,14 @@ class ClientesPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return const _ClientesView();
   }
+}
+
+void _navigateToCliente(BuildContext context, {Cliente? cliente}) {
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (ctx) => ClienteEditPage(cliente: cliente),
+    ),
+  );
 }
 
 class _ClientesView extends StatefulWidget {
@@ -30,112 +38,6 @@ class _ClientesViewState extends State<_ClientesView> {
   void dispose() {
     _messageTimer?.cancel();
     super.dispose();
-  }
-
-  Future<void> _showClienteDialog({Cliente? cliente}) async {
-    if (!mounted) return;
-
-    final nameController = TextEditingController(text: cliente?.name);
-    final emailController = TextEditingController(text: cliente?.email);
-    final phoneController = TextEditingController(text: cliente?.phone);
-    final cityController = TextEditingController(text: cliente?.city);
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
-    final provider = context.read<ClientesProvider>();
-
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: Text(cliente == null ? 'Nuevo Cliente' : 'Editar Cliente'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Nombre *')),
-                const SizedBox(height: 8),
-                TextField(controller: emailController, decoration: const InputDecoration(labelText: 'Email')),
-                const SizedBox(height: 8),
-                TextField(controller: phoneController, decoration: const InputDecoration(labelText: 'Teléfono')),
-                const SizedBox(height: 8),
-                TextField(controller: cityController, decoration: const InputDecoration(labelText: 'Ciudad')),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancelar')),
-            ElevatedButton(
-              onPressed: () async {
-                if (nameController.text.trim().isEmpty) return;
-                
-                final navigator = Navigator.of(ctx);
-
-                try {
-                  if (cliente == null) {
-                    await provider.createCliente(
-                      nameController.text.trim(),
-                      emailController.text.trim(),
-                      phoneController.text.trim(),
-                      cityController.text.trim(),
-                    );
-                  } else {
-                    final updatedCliente = cliente.copyWith(
-                      name: nameController.text.trim(),
-                      email: Value(emailController.text.trim()),
-                      phone: Value(phoneController.text.trim()),
-                      city: Value(cityController.text.trim()),
-                    );
-                    await provider.updateCliente(updatedCliente);
-                  }
-                  navigator.pop(true);
-                } catch (e) {
-                  scaffoldMessenger.showSnackBar(SnackBar(content: Text('Error: $e')));
-                }
-              },
-              child: const Text('Guardar'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (result == true) {
-      scaffoldMessenger.showSnackBar(SnackBar(
-        content: Text(cliente == null ? 'Cliente creado' : 'Cliente actualizado'),
-        backgroundColor: Colors.green,
-      ));
-    }
-  }
-
-  Future<void> _deleteCliente(Cliente cliente) async {
-    if (!mounted) return;
-
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
-    final provider = context.read<ClientesProvider>();
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Confirmar'),
-        content: Text('¿Eliminar "${cliente.name}"?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Eliminar'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      try {
-        await provider.deleteCliente(cliente);
-        scaffoldMessenger.showSnackBar(const SnackBar(content: Text('Cliente eliminado')));
-      } catch (e) {
-        scaffoldMessenger.showSnackBar(SnackBar(content: Text('Error: $e')));
-      }
-    }
   }
   
   @override
@@ -158,7 +60,7 @@ class _ClientesViewState extends State<_ClientesView> {
                       onRefresh: () => provider.syncClientes(),
                       child: filteredClientes.isEmpty
                           ? _buildEmptyState(context.watch<NavigationProvider>().searchQuery)
-                          : _buildClientesList(filteredClientes),
+                          : _buildClientesList(context, filteredClientes),
                     ),
             ),
           ],
@@ -179,6 +81,9 @@ class _ClientesViewState extends State<_ClientesView> {
   }
 
   Widget _buildSyncStatus(ClientesProvider provider) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     if (provider.syncMessage == null) {
       return const SizedBox.shrink();
     }
@@ -200,17 +105,26 @@ class _ClientesViewState extends State<_ClientesView> {
       elevation: 2,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
-        color: isError ? Colors.red.shade100 : Colors.blue.shade50,
+        decoration: BoxDecoration(
+            gradient: isError
+                ? null
+                : LinearGradient(
+                    colors: [colorScheme.primary, colorScheme.secondary],
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                  ),
+            color: isError ? colorScheme.errorContainer : null,
+        ),
         child: Padding(
           padding: const EdgeInsets.all(8.0),
           child: Column(
             children: [
               Row(
                 children: [
-                  if (isLoading) const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-                  if (!isLoading) Icon(isError ? Icons.error_outline : Icons.check_circle_outline, color: isError ? Colors.red : Colors.green, size: 16),
+                  if (isLoading) SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.onPrimary)),
+                  if (!isLoading) Icon(isError ? Icons.error_outline : Icons.check_circle_outline, color: isError ? colorScheme.error : colorScheme.onPrimary, size: 16),
                   const SizedBox(width: 12),
-                  Expanded(child: Text(message, style: Theme.of(context).textTheme.bodySmall)),
+                  Expanded(child: Text(message, style: theme.textTheme.bodySmall?.copyWith(color: isError ? colorScheme.onErrorContainer : colorScheme.onPrimary))),
                 ],
               ),
               if (isLoading) ...[
@@ -231,9 +145,9 @@ class _ClientesViewState extends State<_ClientesView> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const SizedBox(height: 50),
-            Icon(searchQuery.isEmpty ? Icons.people_outline : Icons.search_off, size: 64, color: Colors.grey.shade400),
+            Icon(searchQuery.isEmpty ? Icons.people_outline : Icons.search_off, size: 64, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
             const SizedBox(height: 16),
-            Text(searchQuery.isEmpty ? 'No hay clientes' : 'No se encontraron resultados', style: TextStyle(fontSize: 18, color: Colors.grey.shade600)),
+            Text(searchQuery.isEmpty ? 'No hay clientes' : 'No se encontraron resultados', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
             const SizedBox(height: 24),
             if (searchQuery.isEmpty)
               ElevatedButton.icon(
@@ -247,26 +161,67 @@ class _ClientesViewState extends State<_ClientesView> {
     ]
   );
 
-  ListView _buildClientesList(List<Cliente> clientes) => ListView.builder(
-    itemCount: clientes.length,
-    itemBuilder: (context, i) {
-      final cliente = clientes[i];
-      return Card(
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: ListTile(
-          leading: CircleAvatar(child: Text(cliente.name.isNotEmpty ? cliente.name[0] : '?')),
-          title: Text(cliente.name),
-          // --- CAMBIO PRINCIPAL AQUÍ ---
-          subtitle: Text(cliente.phone?.isNotEmpty == true ? cliente.phone! : ''),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(icon: const Icon(Icons.edit, size: 20, color: Colors.grey), onPressed: () => _showClienteDialog(cliente: cliente)),
-              IconButton(icon: const Icon(Icons.delete, size: 20, color: Colors.redAccent), onPressed: () => _deleteCliente(cliente)),
-            ],
+  ListView _buildClientesList(BuildContext context, List<Cliente> clientes) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      itemCount: clientes.length,
+      itemBuilder: (context, i) {
+        final cliente = clientes[i];
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          elevation: 2,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: InkWell(
+            onTap: () => _navigateToCliente(context, cliente: cliente),
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 28,
+                    backgroundColor: colorScheme.primaryContainer,
+                    child: Text(
+                      cliente.name.isNotEmpty ? cliente.name[0].toUpperCase() : '?',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          cliente.name,
+                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        if (cliente.phone?.isNotEmpty == true)
+                          Text(
+                            cliente.phone!,
+                            style: theme.textTheme.bodyMedium?.copyWith(color: colorScheme.onSurfaceVariant),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(Icons.chevron_right_rounded, color: colorScheme.outline),
+                ],
+              ),
+            ),
           ),
-        ),
-      );
-    },
-  );
+        );
+      },
+    );
+  }
 }

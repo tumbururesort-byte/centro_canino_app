@@ -9,38 +9,38 @@ class ClienteListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: Theme.of(context).colorScheme.primary,
+          backgroundColor: theme.colorScheme.primary,
           child: Text(
             cliente.name.isNotEmpty ? cliente.name[0].toUpperCase() : '?',
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            style: theme.textTheme.titleLarge?.copyWith(
+              color: theme.colorScheme.onPrimary,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ),
-        title: Text(cliente.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(cliente.name, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Comprobación de nulabilidad y vacío
             if (cliente.email?.isNotEmpty ?? false)
               Text(cliente.email!),
 
-            // Comprobación de nulabilidad y vacío
             if (cliente.phone?.isNotEmpty ?? false)
               Text(cliente.phone!),
 
-            // Comprobación de nulabilidad y vacío
             if (cliente.city?.isNotEmpty ?? false)
               Text(cliente.city!),
           ],
         ),
         trailing: const Icon(Icons.chevron_right),
         onTap: () {
-          // Navegar a la página de detalles del cliente
           Navigator.pushNamed(context, '/cliente_detalle', arguments: cliente.id);
         },
       ),

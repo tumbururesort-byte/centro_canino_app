@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 
-// 1. Convert to StatefulWidget to safely handle context after async operations
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
@@ -17,12 +16,9 @@ class _ProfilePageState extends State<ProfilePage> {
     final authProvider = context.watch<AuthProvider>();
     final theme = Theme.of(context);
 
-    // 2. Remove the Scaffold. This widget is the 'body' of the MainScaffold.
-    //    It should only return the content that goes inside the body.
     return ListView(
       padding: const EdgeInsets.all(16.0),
       children: <Widget>[
-        // Tarjeta de Información del Usuario
         Card(
           elevation: 4,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -42,7 +38,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 const SizedBox(height: 8),
                 Text(
                   authProvider.userLogin ?? 'Login no disponible',
-                  style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey[600]),
+                  style: theme.textTheme.titleMedium,
                 ),
               ],
             ),
@@ -50,7 +46,6 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         const SizedBox(height: 24),
 
-        // Tarjeta de Detalles de la Sesión
         _buildSectionTitle(context, 'Detalles de la Conexión'),
         Card(
           elevation: 2,
@@ -73,10 +68,9 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         const SizedBox(height: 32),
 
-        // Botón de Cerrar Sesión
         ElevatedButton.icon(
-          icon: const Icon(Icons.logout, color: Colors.white),
-          label: const Text('Cerrar Sesión', style: TextStyle(color: Colors.white)),
+          icon: const Icon(Icons.logout),
+          label: const Text('Cerrar Sesión'),
           onPressed: () {
             showDialog(
               context: context,
@@ -93,7 +87,6 @@ class _ProfilePageState extends State<ProfilePage> {
                       child: const Text('Cerrar Sesión'),
                       onPressed: () {
                         Navigator.of(ctx).pop();
-                        // 3. Add 'mounted' check before using context to prevent runtime error
                         if (!mounted) return;
                         context.read<AuthProvider>().logout(); 
                       },
@@ -104,7 +97,6 @@ class _ProfilePageState extends State<ProfilePage> {
             );
           },
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.redAccent,
             padding: const EdgeInsets.symmetric(vertical: 16),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
@@ -115,7 +107,6 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  // Helper methods are now part of the State class
   Widget _buildSectionTitle(BuildContext context, String title) {
     return Padding(
       padding: const EdgeInsets.only(left: 4, bottom: 8),
@@ -123,17 +114,17 @@ class _ProfilePageState extends State<ProfilePage> {
         title,
         style: Theme.of(context).textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.bold,
-              color: Theme.of(context).colorScheme.primary,
             ),
       ),
     );
   }
 
   Widget _buildInfoTile({required IconData icon, required String title, required String subtitle}) {
+    final theme = Theme.of(context);
     return ListTile(
-      leading: Icon(icon, color: Colors.grey[700]),
+      leading: Icon(icon, color: theme.colorScheme.onSurfaceVariant),
       title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-      subtitle: Text(subtitle, style: const TextStyle(fontSize: 16)),
+      subtitle: Text(subtitle, style: theme.textTheme.bodyLarge),
     );
   }
 }

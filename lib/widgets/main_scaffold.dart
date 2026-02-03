@@ -1,6 +1,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:myapp/pages/cliente_edit_page.dart';
 import '../providers/navigation_provider.dart';
 import '../pages/clientes_page.dart';
 import '../pages/profile_page.dart';
@@ -44,20 +45,18 @@ class _MainScaffoldState extends State<MainScaffold> {
     return AppBar(
       title: Text(_getCurrentPageTitle(provider.currentPage)),
       actions: [
-        // Solo mostramos la lupa en la página de clientes
         if (provider.currentPage == AppPage.clientes)
           IconButton(
             icon: const Icon(Icons.search),
-            onPressed: () {
-              provider.startSearch();
-            },
+            onPressed: () => provider.startSearch(),
           ),
       ],
     );
   }
 
   AppBar _buildSearchAppBar(BuildContext context, NavigationProvider provider) {
-    // Sincronizamos el controlador por si la búsqueda se cancela
+    final theme = Theme.of(context);
+
     if (provider.searchQuery.isEmpty) {
       _searchController.clear();
     }
@@ -76,12 +75,8 @@ class _MainScaffoldState extends State<MainScaffold> {
         decoration: const InputDecoration(
           hintText: 'Buscar...',
           border: InputBorder.none,
-          hintStyle: TextStyle(color: Colors.white70),
         ),
-        style: const TextStyle(color: Colors.white),
-        onChanged: (query) {
-          provider.updateSearchQuery(query);
-        },
+        onChanged: (query) => provider.updateSearchQuery(query),
       ),
       actions: [
         IconButton(
@@ -108,12 +103,17 @@ class _MainScaffoldState extends State<MainScaffold> {
               : _buildDefaultAppBar(context, navigationProvider),
           drawer: const AppDrawer(),
           body: _buildCurrentPage(currentPage),
-          floatingActionButton: navigationProvider.fabAction == null
-              ? null
-              : FloatingActionButton(
-                  onPressed: navigationProvider.fabAction,
-                  child: const Icon(Icons.add),
-                ),
+          floatingActionButton: (currentPage == AppPage.clientes && !isSearching)
+              ? FloatingActionButton(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (ctx) => const ClienteEditPage()),
+                    );
+                  },
+                  tooltip: 'Nuevo Cliente',
+                  child: const Icon(Icons.person_add_alt_1_rounded),
+                )
+              : null,
         );
       },
     );
