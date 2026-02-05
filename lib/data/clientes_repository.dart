@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'package:drift/drift.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -38,74 +37,42 @@ class ClientesRepository {
       _progressStreamController = StreamController<String>.broadcast();
     }
 
-    if (odooService == null) {
-      _progressStreamController.add("Sesión no iniciada. No se puede sincronizar.");
+    if (odooService == null || !odooService!.isUserLoggedIn) {
+      _progressStreamController.add("Sincronización pausada. Inicia sesión para continuar.");
       return;
-    }
-    final prefs = sharedPreferences;
-    DateTime? lastSync;
-
-    final lastSyncString = prefs.getString(lastSyncTimestampKey);
-    if (lastSyncString != null) {
-      lastSync = DateTime.parse(lastSyncString);
     }
 
     developer.log('🚀 Iniciando proceso de sincronización...', name: 'ClientesRepository');
     _progressStreamController.add('Iniciando sincronización...');
 
     try {
-      _progressStreamController.add('Contando registros en Odoo...');
+      await _syncPendientes();
+
+      final lastSync = _getLastSyncDate();
       final totalToSync = await odooService!.countClientes(lastSync: lastSync);
       
       if (totalToSync == 0) {
-        _progressStreamController.add('👍 ¡Todo está al día! No hay clientes nuevos para sincronizar.');
-        await prefs.setString(lastSyncTimestampKey, DateTime.now().toIso8601String());
+        _progressStreamController.add('👍 ¡Todo está al día!');
+        await _saveLastSyncDate();
         return;
       }
 
       _progressStreamController.add('$totalToSync clientes para descargar.');
 
-      final chunkSize = 50;
-      int downloadedCount = 0;
-
+      const chunkSize = 50;
       for (int offset = 0; offset < totalToSync; offset += chunkSize) {
-        final message = 'Descargando clientes... ${offset + 1} - ${offset + chunkSize > totalToSync ? totalToSync : offset + chunkSize} de $totalToSync';
+        final message = 'Descargando... ${offset + 1} - ${offset + chunkSize > totalToSync ? totalToSync : offset + chunkSize} de $totalToSync';
         _progressStreamController.add(message);
 
-        final clientesFromOdoo = await odooService!.fetchClientesChunk(
-          lastSync: lastSync,
-          limit: chunkSize,
-          offset: offset,
-        );
-
+        final clientesFromOdoo = await odooService!.fetchClientesChunk(lastSync: lastSync, limit: chunkSize, offset: offset);
         if (clientesFromOdoo.isNotEmpty) {
-          final clientesToSave = clientesFromOdoo.map((clienteData) {
-            // **LA SOLUCIÓN**
-            // Priorizamos 'mobile' sobre 'phone'.
-            final mobile = _sanitizeString(clienteData['mobile']);
-            final phone = _sanitizeString(clienteData['phone']);
-            final telefonoFinal = mobile.isNotEmpty ? mobile : phone;
-
-            return ClientesCompanion(
-              odooId: Value(clienteData['id'] as int),
-              name: Value(_sanitizeString(clienteData['name'], defaultValue: 'Nombre no disponible')),
-              email: Value(_sanitizeString(clienteData['email'])),
-              phone: Value(telefonoFinal), // Usamos el teléfono final
-              city: Value(_sanitizeString(clienteData['city'])),
-              pendingSync: const Value(false),
-            );
-          });
-
-          await clientesDao.insertOrUpdateAll(clientesToSave.toList());
-          downloadedCount += clientesFromOdoo.length;
+          final clientesToSave = clientesFromOdoo.map((data) => _clienteFromOdooData(data)).toList();
+          await clientesDao.insertOrUpdateAll(clientesToSave);
         }
       }
       
-      final syncTime = DateTime.now();
-      await prefs.setString(lastSyncTimestampKey, syncTime.toIso8601String());
-      
-      final successMessage = '✅ Sincronización completada. $downloadedCount clientes actualizados.';
-      _progressStreamController.add(successMessage);
+      await _saveLastSyncDate();
+      _progressStreamController.add('✅ Sincronización completada.');
 
     } catch (e, s) {
       final errorMessage = '❌ Error durante la sincronización: $e';
@@ -114,52 +81,94 @@ class ClientesRepository {
     }
   }
 
-  void dispose() {
-    if (!_progressStreamController.isClosed) {
-      _progressStreamController.close();
+  Future<void> _syncPendientes() async {
+    final pendientes = await clientesDao.getClientesPendientes();
+    if (pendientes.isEmpty) return;
+
+    _progressStreamController.add('Enviando ${pendientes.length} cambios locales...');
+    
+    for (final cliente in pendientes) {
+      try {
+        if (cliente.isDeleted) {
+          if (cliente.odooId != null) {
+            await odooService!.deleteCliente(cliente.odooId!);
+          }
+          await clientesDao.deleteCliente(cliente);
+        } else if (cliente.odooId == null) {
+          final newId = await odooService!.createCliente(_clienteToOdooData(cliente));
+          final updatedCliente = cliente.copyWith(odooId: Value(newId), pendingSync: false);
+          await clientesDao.updateCliente(updatedCliente);
+        } else {
+          await odooService!.updateCliente(cliente.odooId!, _clienteToOdooData(cliente));
+          final updatedCliente = cliente.copyWith(pendingSync: false);
+          await clientesDao.updateCliente(updatedCliente);
+        }
+      } catch (e) {
+        developer.log('Error sincronizando cliente ${cliente.id}: $e', name: 'ClientesRepository');
+      }
     }
+    _progressStreamController.add('Cambios locales enviados.');
   }
 
   Future<void> createCliente(String name, String email, String phone, String city) async {
-    if (odooService == null) throw Exception("Servicio Odoo no disponible");
-    // Al crear un cliente, asumimos que el teléfono que nos dan es el móvil.
-    final clienteData = {'name': name, 'email': email, 'mobile': phone, 'city': city, 'customer_rank': 1};
-    try {
-      final newOdooId = await odooService!.createCliente(clienteData);
-      await clientesDao.insertCliente(ClientesCompanion(
-        odooId: Value(newOdooId),
-        name: Value(name),
-        email: Value(email),
-        phone: Value(phone),
-        city: Value(city),
-      ));
-    } catch (e) {
-      developer.log('❌ Error al crear el cliente: $e', name: 'ClientesRepository');
-      rethrow;
-    }
+    final cliente = ClientesCompanion(
+      name: Value(name),
+      email: Value(email),
+      phone: Value(phone),
+      city: Value(city),
+      pendingSync: const Value(true),
+    );
+    await clientesDao.insertCliente(cliente);
+    syncClientes();
   }
 
   Future<void> updateCliente(Cliente cliente) async {
-    if (odooService == null) throw Exception("Servicio Odoo no disponible");
-    // Al actualizar, también enviamos el teléfono al campo 'mobile' de Odoo.
-    final clienteData = {'name': cliente.name, 'email': cliente.email, 'mobile': cliente.phone, 'city': cliente.city};
-    try {
-      await odooService!.updateCliente(cliente.odooId!, clienteData);
-      await clientesDao.updateCliente(cliente);
-    } catch (e) {
-      developer.log('❌ Error al actualizar el cliente: $e', name: 'ClientesRepository');
-      rethrow;
-    }
+    final updatedCliente = cliente.copyWith(pendingSync: true);
+    await clientesDao.updateCliente(updatedCliente);
+    syncClientes();
   }
 
   Future<void> deleteCliente(Cliente cliente) async {
-    if (odooService == null) throw Exception("Servicio Odoo no disponible");
-    try {
-      await odooService!.deleteCliente(cliente.odooId!);
-      await clientesDao.deleteCliente(cliente);
-    } catch (e) {
-      developer.log('❌ Error al eliminar el cliente: $e', name: 'ClientesRepository');
-      rethrow;
+    final updatedCliente = cliente.copyWith(pendingSync: true, isDeleted: true);
+    await clientesDao.updateCliente(updatedCliente);
+    syncClientes(); 
+  }
+
+  DateTime? _getLastSyncDate() {
+    final lastSyncString = sharedPreferences.getString(lastSyncTimestampKey);
+    return lastSyncString != null ? DateTime.parse(lastSyncString) : null;
+  }
+
+  Future<void> _saveLastSyncDate() async {
+    await sharedPreferences.setString(lastSyncTimestampKey, DateTime.now().toIso8601String());
+  }
+
+  ClientesCompanion _clienteFromOdooData(Map<String, dynamic> data) {
+    final mobile = _sanitizeString(data['mobile']);
+    final phone = _sanitizeString(data['phone']);
+    return ClientesCompanion(
+      odooId: Value(data['id'] as int),
+      name: Value(_sanitizeString(data['name'], defaultValue: 'Nombre no disponible')),
+      email: Value(_sanitizeString(data['email'])),
+      phone: Value(mobile.isNotEmpty ? mobile : phone),
+      city: Value(_sanitizeString(data['city'])),
+      pendingSync: const Value(false),
+    );
+  }
+
+  Map<String, dynamic> _clienteToOdooData(Cliente cliente) {
+    return {
+      'name': cliente.name,
+      'email': cliente.email?.isNotEmpty == true ? cliente.email : false,
+      'mobile': cliente.phone?.isNotEmpty == true ? cliente.phone : false,
+      'city': cliente.city?.isNotEmpty == true ? cliente.city : false,
+      'customer_rank': 1,
+    };
+  }
+
+  void dispose() {
+    if (!_progressStreamController.isClosed) {
+      _progressStreamController.close();
     }
   }
 }

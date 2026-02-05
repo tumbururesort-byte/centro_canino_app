@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:myapp/data/clientes_repository.dart';
@@ -30,6 +29,7 @@ class ClientesProvider with ChangeNotifier {
         _clearData();
       }
     });
+    
     if (_authProvider.isLoggedIn) {
       _initialize();
     }
@@ -59,16 +59,19 @@ class ClientesProvider with ChangeNotifier {
 
   void _listenToClientesStream() {
     _clientesSubscription?.cancel();
-    _clientesSubscription = _repository.watchClientes().listen((clientes) {
-      _clientes = clientes;
-      if (!_isLoading) {
+    _clientesSubscription = _repository.watchClientes().listen(
+      (clientes) {
+        _clientes = clientes;
+        if (!_isLoading) {
+          notifyListeners();
+        }
+      },
+      onError: (e) {
+        _error = 'Error al leer la base de datos: $e';
+        _isLoading = false;
         notifyListeners();
-      }
-    }, onError: (e) {
-      _error = 'Error al leer la base de datos: $e';
-      _isLoading = false;
-      notifyListeners();
-    });
+      },
+    );
   }
 
   void _listenToProgressStream() {
@@ -76,52 +79,36 @@ class ClientesProvider with ChangeNotifier {
     _progressSubscription = _repository.progressStream.listen((message) {
       _syncMessage = message;
       final isFinalMessage = message.startsWith('✅') || message.startsWith('❌') || message.startsWith('👍');
+      
       if (isFinalMessage) {
         _isLoading = false;
-        if (message.startsWith('❌')) {
-          _error = message;
-        }
+        _error = message.startsWith('❌') ? message : null;
       } else {
         _isLoading = true;
         _error = null;
       }
+      
       notifyListeners();
     });
   }
 
   Future<void> syncClientes() async {
-    if (_isLoading || !_authProvider.isLoggedIn) return;
+    if (_isLoading) return;
     await _repository.syncClientes();
   }
 
   Future<void> createCliente(String name, String email, String phone, String city) async {
-    try {
-      await _repository.createCliente(name, email, phone, city);
-    } catch (e) {
-      _error = e.toString();
-      notifyListeners();
-      rethrow;
-    }
+    if (name.trim().isEmpty) throw Exception('El nombre es obligatorio');
+    await _repository.createCliente(name.trim(), email.trim(), phone.trim(), city.trim());
   }
 
   Future<void> updateCliente(Cliente cliente) async {
-    try {
-      await _repository.updateCliente(cliente);
-    } catch (e) {
-      _error = e.toString();
-      notifyListeners();
-      rethrow;
-    }
+    if (cliente.name.trim().isEmpty) throw Exception('El nombre es obligatorio');
+    await _repository.updateCliente(cliente);
   }
 
   Future<void> deleteCliente(Cliente cliente) async {
-    try {
-      await _repository.deleteCliente(cliente);
-    } catch (e) {
-      _error = e.toString();
-      notifyListeners();
-      rethrow;
-    }
+    await _repository.deleteCliente(cliente);
   }
 
   void _clearData() {

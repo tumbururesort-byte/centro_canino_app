@@ -8,12 +8,10 @@ part 'clientes_dao.g.dart';
 class ClientesDao extends DatabaseAccessor<AppDatabase> with _$ClientesDaoMixin {
   ClientesDao(super.db);
 
-  Stream<List<Cliente>> watchAllClientes() => select(clientes).watch();
+  Stream<List<Cliente>> watchAllClientes() => (select(clientes)..where((c) => c.isDeleted.equals(false))).watch();
 
   Future<void> insertCliente(ClientesCompanion cliente) => into(clientes).insert(cliente);
-  
-  // Método para insertar/actualizar una lista de clientes.
-  // Usado por el Repository para la sincronización.
+
   Future<void> insertOrUpdateAll(List<ClientesCompanion> clientesList) {
     return batch((batch) {
       batch.insertAll(
@@ -27,4 +25,8 @@ class ClientesDao extends DatabaseAccessor<AppDatabase> with _$ClientesDaoMixin 
   Future<void> updateCliente(Cliente cliente) => update(clientes).replace(cliente);
   
   Future<void> deleteCliente(Cliente cliente) => delete(clientes).delete(cliente);
+
+  Future<List<Cliente>> getClientesPendientes() {
+    return (select(clientes)..where((c) => c.pendingSync.equals(true))).get();
+  }
 }

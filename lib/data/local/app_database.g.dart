@@ -64,42 +64,9 @@ class $ClientesTable extends Clientes with TableInfo<$ClientesTable, Cliente> {
       defaultConstraints:
           GeneratedColumn.constraintIsAlways('CHECK ("is_deleted" IN (0, 1))'),
       defaultValue: const Constant(false));
-  static const VerificationMeta _lastSyncMeta =
-      const VerificationMeta('lastSync');
   @override
-  late final GeneratedColumn<DateTime> lastSync = GeneratedColumn<DateTime>(
-      'last_sync', aliasedName, true,
-      type: DriftSqlType.dateTime, requiredDuringInsert: false);
-  static const VerificationMeta _createdAtMeta =
-      const VerificationMeta('createdAt');
-  @override
-  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
-      'created_at', aliasedName, false,
-      type: DriftSqlType.dateTime,
-      requiredDuringInsert: false,
-      defaultValue: currentDateAndTime);
-  static const VerificationMeta _updatedAtMeta =
-      const VerificationMeta('updatedAt');
-  @override
-  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
-      'updated_at', aliasedName, false,
-      type: DriftSqlType.dateTime,
-      requiredDuringInsert: false,
-      defaultValue: currentDateAndTime);
-  @override
-  List<GeneratedColumn> get $columns => [
-        id,
-        odooId,
-        name,
-        email,
-        phone,
-        city,
-        pendingSync,
-        isDeleted,
-        lastSync,
-        createdAt,
-        updatedAt
-      ];
+  List<GeneratedColumn> get $columns =>
+      [id, odooId, name, email, phone, city, pendingSync, isDeleted];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -145,18 +112,6 @@ class $ClientesTable extends Clientes with TableInfo<$ClientesTable, Cliente> {
       context.handle(_isDeletedMeta,
           isDeleted.isAcceptableOrUnknown(data['is_deleted']!, _isDeletedMeta));
     }
-    if (data.containsKey('last_sync')) {
-      context.handle(_lastSyncMeta,
-          lastSync.isAcceptableOrUnknown(data['last_sync']!, _lastSyncMeta));
-    }
-    if (data.containsKey('created_at')) {
-      context.handle(_createdAtMeta,
-          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
-    }
-    if (data.containsKey('updated_at')) {
-      context.handle(_updatedAtMeta,
-          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
-    }
     return context;
   }
 
@@ -182,12 +137,6 @@ class $ClientesTable extends Clientes with TableInfo<$ClientesTable, Cliente> {
           .read(DriftSqlType.bool, data['${effectivePrefix}pending_sync'])!,
       isDeleted: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}is_deleted'])!,
-      lastSync: attachedDatabase.typeMapping
-          .read(DriftSqlType.dateTime, data['${effectivePrefix}last_sync']),
-      createdAt: attachedDatabase.typeMapping
-          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
-      updatedAt: attachedDatabase.typeMapping
-          .read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
     );
   }
 
@@ -206,9 +155,6 @@ class Cliente extends DataClass implements Insertable<Cliente> {
   final String? city;
   final bool pendingSync;
   final bool isDeleted;
-  final DateTime? lastSync;
-  final DateTime createdAt;
-  final DateTime updatedAt;
   const Cliente(
       {required this.id,
       this.odooId,
@@ -217,10 +163,7 @@ class Cliente extends DataClass implements Insertable<Cliente> {
       this.phone,
       this.city,
       required this.pendingSync,
-      required this.isDeleted,
-      this.lastSync,
-      required this.createdAt,
-      required this.updatedAt});
+      required this.isDeleted});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -240,11 +183,6 @@ class Cliente extends DataClass implements Insertable<Cliente> {
     }
     map['pending_sync'] = Variable<bool>(pendingSync);
     map['is_deleted'] = Variable<bool>(isDeleted);
-    if (!nullToAbsent || lastSync != null) {
-      map['last_sync'] = Variable<DateTime>(lastSync);
-    }
-    map['created_at'] = Variable<DateTime>(createdAt);
-    map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
   }
 
@@ -261,11 +199,6 @@ class Cliente extends DataClass implements Insertable<Cliente> {
       city: city == null && nullToAbsent ? const Value.absent() : Value(city),
       pendingSync: Value(pendingSync),
       isDeleted: Value(isDeleted),
-      lastSync: lastSync == null && nullToAbsent
-          ? const Value.absent()
-          : Value(lastSync),
-      createdAt: Value(createdAt),
-      updatedAt: Value(updatedAt),
     );
   }
 
@@ -281,9 +214,6 @@ class Cliente extends DataClass implements Insertable<Cliente> {
       city: serializer.fromJson<String?>(json['city']),
       pendingSync: serializer.fromJson<bool>(json['pendingSync']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
-      lastSync: serializer.fromJson<DateTime?>(json['lastSync']),
-      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
-      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
   }
   @override
@@ -298,9 +228,6 @@ class Cliente extends DataClass implements Insertable<Cliente> {
       'city': serializer.toJson<String?>(city),
       'pendingSync': serializer.toJson<bool>(pendingSync),
       'isDeleted': serializer.toJson<bool>(isDeleted),
-      'lastSync': serializer.toJson<DateTime?>(lastSync),
-      'createdAt': serializer.toJson<DateTime>(createdAt),
-      'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
   }
 
@@ -312,10 +239,7 @@ class Cliente extends DataClass implements Insertable<Cliente> {
           Value<String?> phone = const Value.absent(),
           Value<String?> city = const Value.absent(),
           bool? pendingSync,
-          bool? isDeleted,
-          Value<DateTime?> lastSync = const Value.absent(),
-          DateTime? createdAt,
-          DateTime? updatedAt}) =>
+          bool? isDeleted}) =>
       Cliente(
         id: id ?? this.id,
         odooId: odooId.present ? odooId.value : this.odooId,
@@ -325,9 +249,6 @@ class Cliente extends DataClass implements Insertable<Cliente> {
         city: city.present ? city.value : this.city,
         pendingSync: pendingSync ?? this.pendingSync,
         isDeleted: isDeleted ?? this.isDeleted,
-        lastSync: lastSync.present ? lastSync.value : this.lastSync,
-        createdAt: createdAt ?? this.createdAt,
-        updatedAt: updatedAt ?? this.updatedAt,
       );
   Cliente copyWithCompanion(ClientesCompanion data) {
     return Cliente(
@@ -340,9 +261,6 @@ class Cliente extends DataClass implements Insertable<Cliente> {
       pendingSync:
           data.pendingSync.present ? data.pendingSync.value : this.pendingSync,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
-      lastSync: data.lastSync.present ? data.lastSync.value : this.lastSync,
-      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
-      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
   }
 
@@ -356,17 +274,14 @@ class Cliente extends DataClass implements Insertable<Cliente> {
           ..write('phone: $phone, ')
           ..write('city: $city, ')
           ..write('pendingSync: $pendingSync, ')
-          ..write('isDeleted: $isDeleted, ')
-          ..write('lastSync: $lastSync, ')
-          ..write('createdAt: $createdAt, ')
-          ..write('updatedAt: $updatedAt')
+          ..write('isDeleted: $isDeleted')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, odooId, name, email, phone, city,
-      pendingSync, isDeleted, lastSync, createdAt, updatedAt);
+  int get hashCode =>
+      Object.hash(id, odooId, name, email, phone, city, pendingSync, isDeleted);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -378,10 +293,7 @@ class Cliente extends DataClass implements Insertable<Cliente> {
           other.phone == this.phone &&
           other.city == this.city &&
           other.pendingSync == this.pendingSync &&
-          other.isDeleted == this.isDeleted &&
-          other.lastSync == this.lastSync &&
-          other.createdAt == this.createdAt &&
-          other.updatedAt == this.updatedAt);
+          other.isDeleted == this.isDeleted);
 }
 
 class ClientesCompanion extends UpdateCompanion<Cliente> {
@@ -393,9 +305,6 @@ class ClientesCompanion extends UpdateCompanion<Cliente> {
   final Value<String?> city;
   final Value<bool> pendingSync;
   final Value<bool> isDeleted;
-  final Value<DateTime?> lastSync;
-  final Value<DateTime> createdAt;
-  final Value<DateTime> updatedAt;
   const ClientesCompanion({
     this.id = const Value.absent(),
     this.odooId = const Value.absent(),
@@ -405,9 +314,6 @@ class ClientesCompanion extends UpdateCompanion<Cliente> {
     this.city = const Value.absent(),
     this.pendingSync = const Value.absent(),
     this.isDeleted = const Value.absent(),
-    this.lastSync = const Value.absent(),
-    this.createdAt = const Value.absent(),
-    this.updatedAt = const Value.absent(),
   });
   ClientesCompanion.insert({
     this.id = const Value.absent(),
@@ -418,9 +324,6 @@ class ClientesCompanion extends UpdateCompanion<Cliente> {
     this.city = const Value.absent(),
     this.pendingSync = const Value.absent(),
     this.isDeleted = const Value.absent(),
-    this.lastSync = const Value.absent(),
-    this.createdAt = const Value.absent(),
-    this.updatedAt = const Value.absent(),
   }) : name = Value(name);
   static Insertable<Cliente> custom({
     Expression<int>? id,
@@ -431,9 +334,6 @@ class ClientesCompanion extends UpdateCompanion<Cliente> {
     Expression<String>? city,
     Expression<bool>? pendingSync,
     Expression<bool>? isDeleted,
-    Expression<DateTime>? lastSync,
-    Expression<DateTime>? createdAt,
-    Expression<DateTime>? updatedAt,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -444,9 +344,6 @@ class ClientesCompanion extends UpdateCompanion<Cliente> {
       if (city != null) 'city': city,
       if (pendingSync != null) 'pending_sync': pendingSync,
       if (isDeleted != null) 'is_deleted': isDeleted,
-      if (lastSync != null) 'last_sync': lastSync,
-      if (createdAt != null) 'created_at': createdAt,
-      if (updatedAt != null) 'updated_at': updatedAt,
     });
   }
 
@@ -458,10 +355,7 @@ class ClientesCompanion extends UpdateCompanion<Cliente> {
       Value<String?>? phone,
       Value<String?>? city,
       Value<bool>? pendingSync,
-      Value<bool>? isDeleted,
-      Value<DateTime?>? lastSync,
-      Value<DateTime>? createdAt,
-      Value<DateTime>? updatedAt}) {
+      Value<bool>? isDeleted}) {
     return ClientesCompanion(
       id: id ?? this.id,
       odooId: odooId ?? this.odooId,
@@ -471,9 +365,6 @@ class ClientesCompanion extends UpdateCompanion<Cliente> {
       city: city ?? this.city,
       pendingSync: pendingSync ?? this.pendingSync,
       isDeleted: isDeleted ?? this.isDeleted,
-      lastSync: lastSync ?? this.lastSync,
-      createdAt: createdAt ?? this.createdAt,
-      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
@@ -504,15 +395,6 @@ class ClientesCompanion extends UpdateCompanion<Cliente> {
     if (isDeleted.present) {
       map['is_deleted'] = Variable<bool>(isDeleted.value);
     }
-    if (lastSync.present) {
-      map['last_sync'] = Variable<DateTime>(lastSync.value);
-    }
-    if (createdAt.present) {
-      map['created_at'] = Variable<DateTime>(createdAt.value);
-    }
-    if (updatedAt.present) {
-      map['updated_at'] = Variable<DateTime>(updatedAt.value);
-    }
     return map;
   }
 
@@ -526,10 +408,7 @@ class ClientesCompanion extends UpdateCompanion<Cliente> {
           ..write('phone: $phone, ')
           ..write('city: $city, ')
           ..write('pendingSync: $pendingSync, ')
-          ..write('isDeleted: $isDeleted, ')
-          ..write('lastSync: $lastSync, ')
-          ..write('createdAt: $createdAt, ')
-          ..write('updatedAt: $updatedAt')
+          ..write('isDeleted: $isDeleted')
           ..write(')'))
         .toString();
   }
@@ -556,9 +435,6 @@ typedef $$ClientesTableCreateCompanionBuilder = ClientesCompanion Function({
   Value<String?> city,
   Value<bool> pendingSync,
   Value<bool> isDeleted,
-  Value<DateTime?> lastSync,
-  Value<DateTime> createdAt,
-  Value<DateTime> updatedAt,
 });
 typedef $$ClientesTableUpdateCompanionBuilder = ClientesCompanion Function({
   Value<int> id,
@@ -569,9 +445,6 @@ typedef $$ClientesTableUpdateCompanionBuilder = ClientesCompanion Function({
   Value<String?> city,
   Value<bool> pendingSync,
   Value<bool> isDeleted,
-  Value<DateTime?> lastSync,
-  Value<DateTime> createdAt,
-  Value<DateTime> updatedAt,
 });
 
 class $$ClientesTableFilterComposer
@@ -606,15 +479,6 @@ class $$ClientesTableFilterComposer
 
   ColumnFilters<bool> get isDeleted => $composableBuilder(
       column: $table.isDeleted, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<DateTime> get lastSync => $composableBuilder(
-      column: $table.lastSync, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<DateTime> get createdAt => $composableBuilder(
-      column: $table.createdAt, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
-      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
 }
 
 class $$ClientesTableOrderingComposer
@@ -649,15 +513,6 @@ class $$ClientesTableOrderingComposer
 
   ColumnOrderings<bool> get isDeleted => $composableBuilder(
       column: $table.isDeleted, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<DateTime> get lastSync => $composableBuilder(
-      column: $table.lastSync, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
-      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
-      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
 }
 
 class $$ClientesTableAnnotationComposer
@@ -692,15 +547,6 @@ class $$ClientesTableAnnotationComposer
 
   GeneratedColumn<bool> get isDeleted =>
       $composableBuilder(column: $table.isDeleted, builder: (column) => column);
-
-  GeneratedColumn<DateTime> get lastSync =>
-      $composableBuilder(column: $table.lastSync, builder: (column) => column);
-
-  GeneratedColumn<DateTime> get createdAt =>
-      $composableBuilder(column: $table.createdAt, builder: (column) => column);
-
-  GeneratedColumn<DateTime> get updatedAt =>
-      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
 }
 
 class $$ClientesTableTableManager extends RootTableManager<
@@ -734,9 +580,6 @@ class $$ClientesTableTableManager extends RootTableManager<
             Value<String?> city = const Value.absent(),
             Value<bool> pendingSync = const Value.absent(),
             Value<bool> isDeleted = const Value.absent(),
-            Value<DateTime?> lastSync = const Value.absent(),
-            Value<DateTime> createdAt = const Value.absent(),
-            Value<DateTime> updatedAt = const Value.absent(),
           }) =>
               ClientesCompanion(
             id: id,
@@ -747,9 +590,6 @@ class $$ClientesTableTableManager extends RootTableManager<
             city: city,
             pendingSync: pendingSync,
             isDeleted: isDeleted,
-            lastSync: lastSync,
-            createdAt: createdAt,
-            updatedAt: updatedAt,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
@@ -760,9 +600,6 @@ class $$ClientesTableTableManager extends RootTableManager<
             Value<String?> city = const Value.absent(),
             Value<bool> pendingSync = const Value.absent(),
             Value<bool> isDeleted = const Value.absent(),
-            Value<DateTime?> lastSync = const Value.absent(),
-            Value<DateTime> createdAt = const Value.absent(),
-            Value<DateTime> updatedAt = const Value.absent(),
           }) =>
               ClientesCompanion.insert(
             id: id,
@@ -773,9 +610,6 @@ class $$ClientesTableTableManager extends RootTableManager<
             city: city,
             pendingSync: pendingSync,
             isDeleted: isDeleted,
-            lastSync: lastSync,
-            createdAt: createdAt,
-            updatedAt: updatedAt,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
