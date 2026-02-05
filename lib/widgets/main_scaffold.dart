@@ -1,10 +1,10 @@
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:myapp/pages/cliente_edit_page.dart';
 import '../providers/navigation_provider.dart';
 import '../pages/clientes_page.dart';
 import '../pages/profile_page.dart';
+import '../theme/app_theme.dart';
 import 'app_drawer.dart';
 
 class MainScaffold extends StatefulWidget {
@@ -28,7 +28,7 @@ class _MainScaffoldState extends State<MainScaffold> {
       case AppPage.clientes:
         return 'Clientes';
       case AppPage.perfil:
-        return 'Mi Perfil';
+        return 'Perfil';
     }
   }
 
@@ -43,13 +43,52 @@ class _MainScaffoldState extends State<MainScaffold> {
 
   AppBar _buildDefaultAppBar(BuildContext context, NavigationProvider provider) {
     return AppBar(
-      title: Text(_getCurrentPageTitle(provider.currentPage)),
+      backgroundColor: AppColors.surfaceDark,
+      elevation: 0,
+      leading: Builder(
+        builder: (context) => IconButton(
+          icon: const Icon(Icons.menu, color: AppColors.textPrimary),
+          onPressed: () => Scaffold.of(context).openDrawer(),
+        ),
+      ),
+      title: Text(
+        _getCurrentPageTitle(provider.currentPage),
+        style: context.textTheme.titleLarge,
+      ),
       actions: [
-        if (provider.currentPage == AppPage.clientes)
+        if (provider.currentPage == AppPage.clientes) ...[
           IconButton(
-            icon: const Icon(Icons.search),
+            icon: const Icon(Icons.search, color: AppColors.textPrimary),
             onPressed: () => provider.startSearch(),
           ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: AppColors.textPrimary),
+            color: AppColors.surfaceDark,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            onSelected: (value) {
+              if (value == 'sync') {
+                // Implementar sincronización manual
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'sync',
+                child: Row(
+                  children: [
+                    Icon(Icons.sync, color: AppColors.textPrimary, size: 20),
+                    SizedBox(width: 12),
+                    Text(
+                      'Sincronizar',
+                      style: TextStyle(color: AppColors.textPrimary),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -60,8 +99,10 @@ class _MainScaffoldState extends State<MainScaffold> {
     }
 
     return AppBar(
+      backgroundColor: AppColors.surfaceDark,
+      elevation: 0,
       leading: IconButton(
-        icon: const Icon(Icons.arrow_back),
+        icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
         onPressed: () {
           provider.stopSearch();
           _searchController.clear();
@@ -70,20 +111,23 @@ class _MainScaffoldState extends State<MainScaffold> {
       title: TextField(
         controller: _searchController,
         autofocus: true,
+        style: const TextStyle(color: AppColors.textPrimary),
         decoration: const InputDecoration(
           hintText: 'Buscar...',
+          hintStyle: TextStyle(color: AppColors.textSecondary),
           border: InputBorder.none,
         ),
         onChanged: (query) => provider.updateSearchQuery(query),
       ),
       actions: [
-        IconButton(
-          icon: const Icon(Icons.clear),
-          onPressed: () {
-            provider.updateSearchQuery('');
-            _searchController.clear();
-          },
-        ),
+        if (_searchController.text.isNotEmpty)
+          IconButton(
+            icon: const Icon(Icons.clear, color: AppColors.textPrimary),
+            onPressed: () {
+              provider.updateSearchQuery('');
+              _searchController.clear();
+            },
+          ),
       ],
     );
   }
@@ -96,6 +140,7 @@ class _MainScaffoldState extends State<MainScaffold> {
         final isSearching = navigationProvider.isSearchActive;
 
         return Scaffold(
+          backgroundColor: AppColors.backgroundDark,
           appBar: isSearching && currentPage == AppPage.clientes
               ? _buildSearchAppBar(context, navigationProvider)
               : _buildDefaultAppBar(context, navigationProvider),
@@ -105,11 +150,14 @@ class _MainScaffoldState extends State<MainScaffold> {
               ? FloatingActionButton(
                   onPressed: () {
                     Navigator.of(context).push(
-                      MaterialPageRoute(builder: (ctx) => const ClienteEditPage()),
+                      MaterialPageRoute(
+                        builder: (ctx) => const ClienteEditPage(),
+                      ),
                     );
                   },
-                  tooltip: 'Nuevo Cliente',
-                  child: const Icon(Icons.person_add_alt_1_rounded),
+                  backgroundColor: AppColors.primary,
+                  elevation: 4,
+                  child: const Icon(Icons.person_add, color: Colors.white),
                 )
               : null,
         );

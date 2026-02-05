@@ -1,9 +1,9 @@
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:drift/drift.dart' hide Column;
 import 'package:myapp/data/local/app_database.dart';
 import 'package:myapp/providers/clientes_provider.dart';
+import 'package:myapp/theme/app_theme.dart';
 
 class ClienteEditPage extends StatefulWidget {
   final Cliente? cliente;
@@ -22,6 +22,7 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
   late final TextEditingController _cityController;
 
   bool get _isEditing => widget.cliente != null;
+  bool _isSaving = false;
 
   @override
   void initState() {
@@ -42,14 +43,15 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
   }
 
   Future<void> _saveCliente() async {
-    if (!_formKey.currentState!.validate()) {
+    if (!_formKey.currentState!.validate() || _isSaving) {
       return;
     }
+
+    setState(() => _isSaving = true);
 
     final provider = context.read<ClientesProvider>();
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
-    final theme = Theme.of(context);
 
     try {
       if (_isEditing) {
@@ -68,76 +70,154 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
           _cityController.text.trim(),
         );
       }
-      
+
       scaffoldMessenger.showSnackBar(
         SnackBar(
           content: Text(_isEditing ? 'Cliente actualizado' : 'Cliente creado'),
-          backgroundColor: theme.colorScheme.primary,
+          backgroundColor: AppColors.primary,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       );
       navigator.pop();
-
     } catch (e) {
       scaffoldMessenger.showSnackBar(
-        SnackBar(content: Text('Error al guardar: $e')),
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
       );
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  Future<void> _deleteCliente() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surfaceDark,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: const Text(
+          'Eliminar cliente',
+          style: TextStyle(color: AppColors.textPrimary),
+        ),
+        content: const Text(
+          '¿Estás seguro de que quieres eliminar este cliente?',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text(
+              'Cancelar',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text(
+              'Eliminar',
+              style: TextStyle(color: AppColors.error),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true && mounted) {
+      try {
+        await context.read<ClientesProvider>().deleteCliente(widget.cliente!);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Cliente eliminado'),
+              backgroundColor: AppColors.primary,
+            ),
+          );
+          Navigator.of(context).pop();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: ${e.toString()}'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
     return Scaffold(
+      backgroundColor: AppColors.backgroundDark,
       appBar: AppBar(
-        title: Text(_isEditing ? 'Editar cliente' : 'Nuevo cliente'),
+        backgroundColor: AppColors.surfaceDark,
         elevation: 0,
-        centerTitle: false,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded),
+          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
           onPressed: () => Navigator.of(context).pop(),
         ),
+        title: Text(
+          _isEditing ? 'Editar cliente' : 'Nuevo cliente',
+          style: context.textTheme.titleLarge,
+        ),
+        actions: [
+          if (_isEditing)
+            IconButton(
+              icon: const Icon(Icons.delete, color: AppColors.error),
+              onPressed: _deleteCliente,
+            ),
+        ],
       ),
       body: Form(
         key: _formKey,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20.0),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 10),
-              _buildProfileHeader(colorScheme, theme.textTheme),
-              const SizedBox(height: 30),
-              _buildTextField(
-                controller: _nameController,
-                labelText: 'Nombre completo',
-                hintText: 'Juan García López',
-                icon: Icons.person_outline_rounded,
-                validator: (value) => (value == null || value.isEmpty) ? 'El nombre es obligatorio' : null,
-              ),
-              const SizedBox(height: 25),
-              _buildTextField(
-                controller: _phoneController,
-                labelText: 'Teléfono',
-                hintText: '+34 623 377 364',
-                icon: Icons.smartphone_rounded,
-                keyboardType: TextInputType.phone,
-              ),
-              const SizedBox(height: 25),
-              _buildTextField(
-                controller: _emailController,
-                labelText: 'Correo electrónico',
-                hintText: 'juan.garcia@email.com',
-                icon: Icons.email_outlined,
-                keyboardType: TextInputType.emailAddress,
-              ),
-              const SizedBox(height: 25),
-              _buildTextField(
-                controller: _cityController,
-                labelText: 'Ciudad',
-                hintText: 'Madrid, España',
-                icon: Icons.location_on_outlined,
+              const SizedBox(height: 24),
+              _buildProfileHeader(),
+              const SizedBox(height: 32),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: Column(
+                  children: [
+                    _buildTextField(
+                      controller: _nameController,
+                      labelText: 'Nombre completo',
+                      icon: Icons.person,
+                      validator: (value) =>
+                          (value == null || value.isEmpty) ? 'Requerido' : null,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      controller: _phoneController,
+                      labelText: 'Teléfono',
+                      icon: Icons.phone,
+                      keyboardType: TextInputType.phone,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      controller: _emailController,
+                      labelText: 'Correo electrónico',
+                      icon: Icons.email,
+                      keyboardType: TextInputType.emailAddress,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      controller: _cityController,
+                      labelText: 'Ciudad',
+                      icon: Icons.location_on,
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 100),
             ],
@@ -145,74 +225,93 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _saveCliente,
+        onPressed: _isSaving ? null : _saveCliente,
+        backgroundColor: _isSaving
+            ? AppColors.primary.withAlpha(128)
+            : AppColors.primary,
         elevation: 4,
-        child: const Icon(Icons.check_rounded, size: 32),
+        child: _isSaving
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: Colors.white,
+                ),
+              )
+            : const Icon(Icons.check, size: 28, color: Colors.white),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 
-  Widget _buildProfileHeader(ColorScheme colorScheme, TextTheme textTheme) {
-    return Center(
-      child: Column(
-        children: [
-          CircleAvatar(
-            radius: 45,
-            backgroundColor: colorScheme.surface.withAlpha(128),
-            child: Icon(
-              Icons.person_outline_rounded,
-              size: 45,
-              color: colorScheme.onSurface.withAlpha(128),
+  Widget _buildProfileHeader() {
+    final avatarColor = _isEditing 
+        ? AppTheme.getAvatarColor(widget.cliente!.name)
+        : AppColors.primary;
+    
+    return Column(
+      children: [
+        Container(
+          width: 100,
+          height: 100,
+          decoration: BoxDecoration(
+            color: avatarColor,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: AppColors.primary,
+              width: 2,
             ),
           ),
-          const SizedBox(height: 8),
-          TextButton(
-            onPressed: () {},
-            child: Text(
-              'Cambiar foto',
-              style: textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+          child: Center(
+            child: _isEditing && widget.cliente!.name.isNotEmpty
+                ? Text(
+                    widget.cliente!.name[0].toUpperCase(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 40,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  )
+                : const Icon(
+                    Icons.person,
+                    size: 50,
+                    color: Colors.white,
+                  ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextButton(
+          onPressed: () {
+            // Funcionalidad para cambiar foto (futura implementación)
+          },
+          child: Text(
+            'Cambiar foto',
+            style: TextStyle(
+              color: AppColors.primary,
+              fontSize: 14,
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
   Widget _buildTextField({
     required TextEditingController controller,
     required String labelText,
-    required String hintText,
     required IconData icon,
     String? Function(String?)? validator,
     TextInputType? keyboardType,
   }) {
-    final theme = Theme.of(context);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4.0, bottom: 6.0),
-          child: Text(
-            labelText,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-        TextFormField(
-          controller: controller,
-          validator: validator,
-          keyboardType: keyboardType,
-          style: theme.textTheme.bodyLarge,
-          decoration: InputDecoration(
-            hintText: hintText,
-            prefixIcon: Icon(icon, size: 22),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          ),
-        ),
-      ],
+    return TextFormField(
+      controller: controller,
+      validator: validator,
+      keyboardType: keyboardType,
+      style: const TextStyle(color: AppColors.textPrimary),
+      decoration: InputDecoration(
+        labelText: labelText,
+        prefixIcon: Icon(icon, size: 20),
+      ),
     );
   }
 }
