@@ -55,8 +55,6 @@ class _MainScaffoldState extends State<MainScaffold> {
   }
 
   AppBar _buildSearchAppBar(BuildContext context, NavigationProvider provider) {
-    final theme = Theme.of(context);
-
     if (provider.searchQuery.isEmpty) {
       _searchController.clear();
     }

@@ -104,7 +104,7 @@ class AppDrawer extends StatelessWidget {
         Navigator.pop(context); // Cierra el drawer
       },
       selected: isSelected,
-      selectedTileColor: theme.colorScheme.primary.withOpacity(0.1),
+      selectedTileColor: theme.colorScheme.primary.withAlpha(26),
     );
   }
 }

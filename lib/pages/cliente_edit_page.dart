@@ -159,11 +159,11 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
         children: [
           CircleAvatar(
             radius: 45,
-            backgroundColor: colorScheme.surface.withOpacity(0.5),
+            backgroundColor: colorScheme.surface.withAlpha(128),
             child: Icon(
               Icons.person_outline_rounded,
               size: 45,
-              color: colorScheme.onSurface.withOpacity(0.5),
+              color: colorScheme.onSurface.withAlpha(128),
             ),
           ),
           const SizedBox(height: 8),
@@ -188,7 +188,6 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
     TextInputType? keyboardType,
   }) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

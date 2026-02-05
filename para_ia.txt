@@ -1,0 +1,18 @@
+OUTPUT="PROJECT_CONTEXT.md"
+: > "$OUTPUT"
+
+{
+  echo "# Proyecto Flutter – Contexto para IA"
+  echo
+  echo "## pubspec.yaml"
+  cat pubspec.yaml
+  echo
+  echo "## Código fuente (lib/)"
+  find lib -name "*.dart" | sort | while read -r file; do
+    echo
+    echo "--------------------------------"
+    echo "### FILE: $file"
+    echo "--------------------------------"
+    cat "$file"
+  done
+} > "$OUTPUT" 2>&1

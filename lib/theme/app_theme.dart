@@ -33,8 +33,6 @@ class AppTheme {
         onPrimary: Colors.white,
         surface: Color(0xFF1C1C1C),
         onSurface: Color(0xFFE8E8E8),
-        background: Color(0xFF121212),
-        onBackground: Color(0xFFE8E8E8),
       ),
       
       // Para los inputs
@@ -42,9 +40,9 @@ class AppTheme {
         filled: true,
         fillColor: const Color(0xFF1C1C1C),
         border: InputBorder.none,
-        enabledBorder: UnderlineInputBorder(
+        enabledBorder: const UnderlineInputBorder(
           borderSide: BorderSide(
-            color: const Color(0xFFF27E5F).withOpacity(0.5),
+            color: Color(0x80F27E5F), // Corrected: withOpacity removed
             width: 2,
           ),
         ),

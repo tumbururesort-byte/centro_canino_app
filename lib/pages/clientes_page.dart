@@ -145,9 +145,9 @@ class _ClientesViewState extends State<_ClientesView> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const SizedBox(height: 50),
-            Icon(searchQuery.isEmpty ? Icons.people_outline : Icons.search_off, size: 64, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
+            Icon(searchQuery.isEmpty ? Icons.people_outline : Icons.search_off, size: 64, color: Theme.of(context).colorScheme.onSurface.withAlpha(128)),
             const SizedBox(height: 16),
-            Text(searchQuery.isEmpty ? 'No hay clientes' : 'No se encontraron resultados', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+            Text(searchQuery.isEmpty ? 'No hay clientes' : 'No se encontraron resultados', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Theme.of(context).colorScheme.onSurface.withAlpha(179))),
             const SizedBox(height: 24),
             if (searchQuery.isEmpty)
               ElevatedButton.icon(
