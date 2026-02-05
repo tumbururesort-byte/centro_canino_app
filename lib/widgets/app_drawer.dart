@@ -1,55 +1,27 @@
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/navigation_provider.dart';
-import '../providers/theme_provider.dart';
 import '../providers/auth_provider.dart';
+import '../theme/app_theme.dart';
 
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // Leemos los providers una sola vez al inicio del build
     final authProvider = context.watch<AuthProvider>();
     final navigationProvider = context.read<NavigationProvider>();
-    final themeProvider = context.read<ThemeProvider>();
-    final theme = Theme.of(context);
 
     return Drawer(
+      backgroundColor: AppColors.backgroundDark,
       child: Column(
         children: <Widget>[
           Expanded(
             child: ListView(
               padding: EdgeInsets.zero,
               children: <Widget>[
-                UserAccountsDrawerHeader(
-                  accountName: Text(
-                    authProvider.userName ?? 'Usuario',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.onPrimary,
-                    )
-                  ),
-                  accountEmail: Text(
-                    authProvider.userLogin ?? 'email@example.com',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onPrimary,
-                    )
-                  ),
-                  currentAccountPicture: CircleAvatar(
-                    backgroundColor: theme.colorScheme.onPrimary,
-                    child: Icon(
-                      Icons.person,
-                      size: 40,
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-                
+                _buildDrawerHeader(authProvider),
+                const SizedBox(height: 8),
                 _buildDrawerItem(
                   context: context,
                   icon: Icons.people,
@@ -57,7 +29,6 @@ class AppDrawer extends StatelessWidget {
                   page: AppPage.clientes,
                   isSelected: navigationProvider.currentPage == AppPage.clientes,
                 ),
-
                 _buildDrawerItem(
                   context: context,
                   icon: Icons.account_circle,
@@ -68,21 +39,58 @@ class AppDrawer extends StatelessWidget {
               ],
             ),
           ),
-          const Divider(),
-          ListTile(
-            leading: Icon(themeProvider.themeMode == ThemeMode.dark ? Icons.light_mode : Icons.dark_mode),
-            title: const Text('Cambiar Tema'),
-            onTap: () {
-              themeProvider.toggleTheme();
-            },
-          ),
-          const SizedBox(height: 10)
+          const Divider(color: AppColors.divider),
+          _buildBottomActions(context),
         ],
       ),
     );
   }
 
-  // Widget helper para crear los elementos del menú
+  Widget _buildDrawerHeader(AuthProvider authProvider) {
+    return Container(
+      padding: const EdgeInsets.only(top: 60, left: 16, right: 16, bottom: 20),
+      decoration: const BoxDecoration(
+        color: AppColors.surfaceDark,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 70,
+            height: 70,
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.primary, width: 2),
+            ),
+            child: const Icon(
+              Icons.person,
+              size: 40,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            authProvider.userName ?? 'Usuario',
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            authProvider.userLogin ?? 'email@example.com',
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 14,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDrawerItem({
     required BuildContext context,
     required IconData icon,
@@ -90,21 +98,59 @@ class AppDrawer extends StatelessWidget {
     required AppPage page,
     required bool isSelected,
   }) {
-    final theme = Theme.of(context);
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(
-        title,
-        style: theme.textTheme.titleMedium?.copyWith(
-          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-        ),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: isSelected ? AppColors.surfaceDark : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
       ),
-      onTap: () {
-        context.read<NavigationProvider>().changePage(page);
-        Navigator.pop(context); // Cierra el drawer
-      },
-      selected: isSelected,
-      selectedTileColor: theme.colorScheme.primary.withAlpha(26),
+      child: ListTile(
+        leading: Icon(
+          icon,
+          color: isSelected ? AppColors.primary : AppColors.textSecondary,
+          size: 24,
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            color: isSelected ? AppColors.primary : AppColors.textPrimary,
+            fontSize: 16,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+          ),
+        ),
+        onTap: () {
+          context.read<NavigationProvider>().changePage(page);
+          Navigator.pop(context);
+        },
+      ),
+    );
+  }
+
+  Widget _buildBottomActions(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      child: Column(
+        children: [
+          ListTile(
+            leading: const Icon(
+              Icons.settings,
+              color: AppColors.textSecondary,
+              size: 24,
+            ),
+            title: const Text(
+              'Configuración',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 16,
+              ),
+            ),
+            onTap: () {
+              // Implementar configuración
+            },
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
     );
   }
 }
