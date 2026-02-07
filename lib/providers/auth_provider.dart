@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../data/remote/odoo_service.dart';
 
@@ -25,12 +26,10 @@ class AuthProvider with ChangeNotifier {
   /// Intenta hacer login con las credenciales proporcionadas
   Future<bool> login(String url, String db, String email, String password) async {
     try {
-      // Limpiar URL de espacios en blanco
       final cleanUrl = url.trim();
       final cleanDb = db.trim();
       final cleanEmail = email.trim();
       
-      // Validaciones básicas
       if (cleanUrl.isEmpty || cleanDb.isEmpty || cleanEmail.isEmpty || password.isEmpty) {
         throw Exception('Todos los campos son requeridos');
       }
@@ -110,13 +109,7 @@ class AuthProvider with ChangeNotifier {
 
   /// Intenta restaurar la sesión guardada automáticamente
   Future<void> tryAutoLogin() async {
-    if (_autoLoginAttempted) {
-      if (kDebugMode) {
-        print('⚠️ Auto-login ya fue intentado');
-      }
-      return;
-    }
-    
+    if (_autoLoginAttempted) return;
     _autoLoginAttempted = true;
 
     try {
@@ -127,7 +120,6 @@ class AuthProvider with ChangeNotifier {
       final userName = sharedPreferences.getString('odoo_user_name');
       final userLogin = sharedPreferences.getString('odoo_user_login');
 
-      // Verificar que todos los datos necesarios estén presentes
       if (url != null && 
           db != null && 
           sessionId != null && 
@@ -135,16 +127,16 @@ class AuthProvider with ChangeNotifier {
           userName != null && 
           userLogin != null) {
         
-        if (kDebugMode) {
-          print('🔄 Intentando restaurar sesión para $userName...');
-        }
-        
         final service = OdooService(serverUrl: url, dbName: db);
         service.restoreSession(sessionId, uid, userName, userLogin);
 
         _odooService = service;
-        notifyListeners();
         _authChangeController.add(true);
+
+        // Llamada segura para notificar a los listeners DESPUÉS de que termine el frame.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          notifyListeners();
+        });
         
         if (kDebugMode) {
           print('✅ Sesión restaurada exitosamente');

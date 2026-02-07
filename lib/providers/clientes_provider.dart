@@ -5,15 +5,17 @@ import 'package:myapp/data/local/app_database.dart';
 import 'package:myapp/providers/auth_provider.dart';
 
 class ClientesProvider with ChangeNotifier {
-  late ClientesRepository _repository;
+  final ClientesRepository _repository;
   final AuthProvider _authProvider;
 
   List<Cliente> _clientes = [];
+  List<Tarifa> _tarifas = [];
   bool _isLoading = false;
   String? _error;
   String? _syncMessage;
 
   StreamSubscription? _clientesSubscription;
+  StreamSubscription? _tarifasSubscription;
   StreamSubscription? _progressSubscription;
   StreamSubscription? _authSubscription;
 
@@ -37,25 +39,16 @@ class ClientesProvider with ChangeNotifier {
 
   void _initialize() {
     _listenToClientesStream();
+    _listenToTarifasStream();
     _listenToProgressStream();
     syncClientes();
   }
 
   List<Cliente> get clientes => _clientes;
+  List<Tarifa> get tarifas => _tarifas;
   bool get isLoading => _isLoading;
   String? get error => _error;
   String? get syncMessage => _syncMessage;
-
-  void updateDependencies(ClientesRepository newRepository, AuthProvider newAuthProvider) {
-    if (_repository != newRepository) {
-      _repository.dispose();
-      _repository = newRepository;
-      
-      if (newAuthProvider.isLoggedIn) {
-        _initialize();
-      }
-    }
-  }
 
   void _listenToClientesStream() {
     _clientesSubscription?.cancel();
@@ -69,6 +62,20 @@ class ClientesProvider with ChangeNotifier {
       onError: (e) {
         _error = 'Error al leer la base de datos: $e';
         _isLoading = false;
+        notifyListeners();
+      },
+    );
+  }
+
+  void _listenToTarifasStream() {
+    _tarifasSubscription?.cancel();
+    _tarifasSubscription = _repository.watchTarifas().listen(
+      (tarifas) {
+        _tarifas = tarifas;
+        notifyListeners();
+      },
+      onError: (e) {
+        _error = 'Error al leer las tarifas: $e';
         notifyListeners();
       },
     );
@@ -97,9 +104,9 @@ class ClientesProvider with ChangeNotifier {
     await _repository.syncClientes();
   }
 
-  Future<void> createCliente(String name, String email, String phone, String city) async {
+  Future<void> createCliente(String name, String email, String phone, String city, int? tarifaId) async {
     if (name.trim().isEmpty) throw Exception('El nombre es obligatorio');
-    await _repository.createCliente(name.trim(), email.trim(), phone.trim(), city.trim());
+    await _repository.createCliente(name.trim(), email.trim(), phone.trim(), city.trim(), tarifaId);
   }
 
   Future<void> updateCliente(Cliente cliente) async {
@@ -113,8 +120,10 @@ class ClientesProvider with ChangeNotifier {
 
   void _clearData() {
     _clientesSubscription?.cancel();
+    _tarifasSubscription?.cancel();
     _progressSubscription?.cancel();
     _clientes = [];
+    _tarifas = [];
     _isLoading = false;
     _error = null;
     _syncMessage = null;
@@ -124,9 +133,9 @@ class ClientesProvider with ChangeNotifier {
   @override
   void dispose() {
     _clientesSubscription?.cancel();
+    _tarifasSubscription?.cancel();
     _progressSubscription?.cancel();
     _authSubscription?.cancel();
-    _repository.dispose();
     super.dispose();
   }
 }

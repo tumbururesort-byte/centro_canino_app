@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:myapp/data/local/tarifas_table.dart';
 
 @DataClassName('Cliente')
 class Clientes extends Table {
@@ -8,6 +9,7 @@ class Clientes extends Table {
   TextColumn get email => text().nullable()();
   TextColumn get phone => text().nullable()();
   TextColumn get city => text().nullable()();
+  IntColumn get tarifaId => integer().nullable().references(Tarifas, #odooId)();
   BoolColumn get pendingSync => boolean().withDefault(const Constant(false))();
   BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
 }

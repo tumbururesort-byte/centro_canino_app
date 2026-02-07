@@ -1,98 +1,124 @@
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'data/local/app_database.dart';
-import 'data/clientes_repository.dart';
-import 'providers/auth_provider.dart';
-import 'providers/navigation_provider.dart';
-import 'providers/theme_provider.dart';
-import 'providers/clientes_provider.dart';
-import 'pages/login_page.dart';
-import 'widgets/main_scaffold.dart';
-import 'theme/app_theme.dart';
+import 'package:myapp/data/local/app_database.dart';
+import 'package:myapp/data/clientes_repository.dart';
+import 'package:myapp/data/remote/odoo_service.dart';
+import 'package:myapp/providers/auth_provider.dart';
+import 'package:myapp/providers/clientes_provider.dart';
+import 'package:myapp/providers/tarifas_provider.dart';
+import 'package:myapp/providers/navigation_provider.dart';
+import 'package:myapp/pages/cliente_list_page.dart';
+import 'package:myapp/pages/login_page.dart';
+import 'package:myapp/theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final SharedPreferences sharedPreferences = await SharedPreferences.getInstance();
-  final AppDatabase database = AppDatabase.instance;
+  final db = AppDatabase.instance;
+  final sharedPreferences = await SharedPreferences.getInstance();
+  
+  runApp(MyApp(db: db, sharedPreferences: sharedPreferences));
+}
 
-  // Crear el AuthProvider aquí para poder llamar a tryAutoLogin
-  final authProvider = AuthProvider(sharedPreferences: sharedPreferences);
-  await authProvider.tryAutoLogin(); // Llamada única al inicio
+class MyApp extends StatelessWidget {
+  final AppDatabase db;
+  final SharedPreferences sharedPreferences;
 
-  runApp(
-    MultiProvider(
+  const MyApp({super.key, required this.db, required this.sharedPreferences});
+
+  @override
+  Widget build(BuildContext context) {
+    return MultiProvider(
       providers: [
-        Provider.value(value: database),
-        Provider.value(value: sharedPreferences),
-        ChangeNotifierProvider.value(value: authProvider),
-        ChangeNotifierProvider(create: (_) => NavigationProvider()),
+        // Infraestructura y servicios base
+        Provider<AppDatabase>.value(value: db),
+        Provider<SharedPreferences>.value(value: sharedPreferences),
         ChangeNotifierProvider(
-          create: (context) => ThemeProvider(sharedPreferences: sharedPreferences),
+            create: (ctx) =>
+                AuthProvider(sharedPreferences: ctx.read<SharedPreferences>())),
+        
+        // Proxy para OdooService que depende de AuthProvider
+        ProxyProvider<AuthProvider, OdooService?>(
+          update: (_, auth, __) => auth.odooService,
         ),
-
-        // ProxyProvider que construye ClientesRepository
-        ProxyProvider<AuthProvider, ClientesRepository>(
-          update: (context, auth, previous) => ClientesRepository(
-            odooService: auth.odooService,
-            clientesDao: database.clientesDao,
+        
+        // Provider para ClientesRepository que depende de OdooService
+        // Se crea una sola instancia que será compartida
+        ProxyProvider<OdooService?, ClientesRepository>(
+          update: (ctx, odooService, previous) => ClientesRepository(
+            odooService: odooService,
+            clientesDao: db.clientesDao,
+            tarifasDao: db.tarifasDao,
             sharedPreferences: sharedPreferences,
           ),
         ),
 
-        // ProxyProvider para ClientesProvider
-        ChangeNotifierProxyProvider<AuthProvider, ClientesProvider>(
-          create: (context) => ClientesProvider(
-            repository: context.read<ClientesRepository>(),
-            authProvider: context.read<AuthProvider>(),
+        // ClientesProvider depende de AuthProvider y del ClientesRepository compartido
+        ChangeNotifierProxyProvider2<AuthProvider, ClientesRepository, ClientesProvider>(
+          create: (ctx) => ClientesProvider(
+            repository: ctx.read<ClientesRepository>(),
+            authProvider: ctx.read<AuthProvider>(),
           ),
-          update: (context, auth, previous) {
-            final repository = context.read<ClientesRepository>();
-            previous?.updateDependencies(repository, auth);
-            return previous ?? ClientesProvider(repository: repository, authProvider: auth);
-          },
+          update: (_, auth, repository, previous) => ClientesProvider(
+            repository: repository,
+            authProvider: auth,
+          ),
         ),
+
+        // TarifasProvider depende del mismo ClientesRepository compartido
+        ChangeNotifierProxyProvider<ClientesRepository, TarifasProvider>(
+          create: (ctx) => TarifasProvider(ctx.read<ClientesRepository>()),
+          update: (_, repository, __) => TarifasProvider(repository),
+        ),
+        
+        ChangeNotifierProvider(create: (_) => NavigationProvider()),
       ],
-      child: const MyApp(),
-    ),
-  );
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Consumer<ThemeProvider>(
-      builder: (context, themeProvider, child) {
-        return MaterialApp(
-          title: 'Clientes Offline-First',
-          theme: AppTheme.lightTheme,
-          darkTheme: AppTheme.darkTheme,
-          themeMode: themeProvider.themeMode,
-          debugShowCheckedModeBanner: false,
-          home: const AuthWrapper(),
-        );
-      },
+      child: const AppMaterial(),
     );
   }
 }
 
-class AuthWrapper extends StatelessWidget {
-  const AuthWrapper({super.key});
+class AppMaterial extends StatefulWidget {
+  const AppMaterial({super.key});
+
+  @override
+  State<AppMaterial> createState() => _AppMaterialState();
+}
+
+class _AppMaterialState extends State<AppMaterial> {
+  late Future<void> _autoLoginFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _autoLoginFuture = context.read<AuthProvider>().tryAutoLogin();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<AuthProvider>(
-      builder: (context, authProvider, child) {
-        return AnimatedSwitcher(
-          duration: const Duration(milliseconds: 300),
-          child: authProvider.isLoggedIn
-              ? const MainScaffold()
-              : const LoginPage(),
-        );
-      },
+    return MaterialApp(
+      title: 'Odoo App',
+      theme: AppTheme.darkTheme,
+      home: FutureBuilder(
+        future: _autoLoginFuture,
+        builder: (ctx, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              backgroundColor: AppColors.backgroundDark,
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+          
+          return Consumer<AuthProvider>(
+            builder: (context, auth, _) {
+              return auth.isLoggedIn
+                  ? const ClienteListPage()
+                  : const LoginPage();
+            },
+          );
+        },
+      ),
+      debugShowCheckedModeBanner: false,
     );
   }
 }

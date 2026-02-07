@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:drift/drift.dart';
+import 'package:myapp/data/local/dao/tarifas_dao.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'remote/odoo_service.dart';
 import 'local/app_database.dart';
@@ -9,6 +10,7 @@ import 'dart:developer' as developer;
 class ClientesRepository {
   final OdooService? odooService;
   final ClientesDao clientesDao;
+  final TarifasDao tarifasDao;
   final SharedPreferences sharedPreferences;
 
   var _progressStreamController = StreamController<String>.broadcast();
@@ -19,6 +21,7 @@ class ClientesRepository {
   ClientesRepository({
     this.odooService,
     required this.clientesDao,
+    required this.tarifasDao, 
     required this.sharedPreferences,
   });
 
@@ -30,6 +33,29 @@ class ClientesRepository {
 
   Stream<List<Cliente>> watchClientes() {
     return clientesDao.watchAllClientes();
+  }
+
+  Stream<List<Tarifa>> watchTarifas() {
+    return tarifasDao.watchAllTarifas();
+  }
+
+  Future<void> syncTarifas() async {
+    if (odooService == null || !odooService!.isUserLoggedIn) return;
+    try {
+      _progressStreamController.add('Actualizando lista de tarifas...');
+      final tarifasFromOdoo = await odooService!.fetchTarifas();
+      if (tarifasFromOdoo.isNotEmpty) {
+        final tarifasToSave = tarifasFromOdoo.map((data) => TarifasCompanion(
+          odooId: Value(data['id'] as int),
+          name: Value(_sanitizeString(data['name'])),
+        )).toList();
+        await tarifasDao.insertOrUpdateAll(tarifasToSave);
+        _progressStreamController.add('Lista de tarifas actualizada.');
+      }
+    } catch (e) {
+      developer.log('Error sincronizando tarifas: $e', name: 'ClientesRepository');
+       _progressStreamController.add('❌ Error actualizando tarifas.');
+    }
   }
 
   Future<void> syncClientes() async {
@@ -52,7 +78,7 @@ class ClientesRepository {
       final totalToSync = await odooService!.countClientes(lastSync: lastSync);
       
       if (totalToSync == 0) {
-        _progressStreamController.add('👍 ¡Todo está al día!');
+         _progressStreamController.add('👍 ¡Todo está al día!');
         await _saveLastSyncDate();
         return;
       }
@@ -110,12 +136,13 @@ class ClientesRepository {
     _progressStreamController.add('Cambios locales enviados.');
   }
 
-  Future<void> createCliente(String name, String email, String phone, String city) async {
+  Future<void> createCliente(String name, String email, String phone, String city, int? tarifaId) async {
     final cliente = ClientesCompanion(
       name: Value(name),
       email: Value(email),
       phone: Value(phone),
       city: Value(city),
+      tarifaId: Value(tarifaId),
       pendingSync: const Value(true),
     );
     await clientesDao.insertCliente(cliente);
@@ -146,12 +173,16 @@ class ClientesRepository {
   ClientesCompanion _clienteFromOdooData(Map<String, dynamic> data) {
     final mobile = _sanitizeString(data['mobile']);
     final phone = _sanitizeString(data['phone']);
+    final pricelist = data['property_product_pricelist'];
+    final int? tarifaOdooId = (pricelist is List && pricelist.isNotEmpty) ? pricelist[0] as int : null;
+
     return ClientesCompanion(
       odooId: Value(data['id'] as int),
       name: Value(_sanitizeString(data['name'], defaultValue: 'Nombre no disponible')),
       email: Value(_sanitizeString(data['email'])),
       phone: Value(mobile.isNotEmpty ? mobile : phone),
       city: Value(_sanitizeString(data['city'])),
+      tarifaId: Value(tarifaOdooId),
       pendingSync: const Value(false),
     );
   }
@@ -162,6 +193,7 @@ class ClientesRepository {
       'email': cliente.email?.isNotEmpty == true ? cliente.email : false,
       'mobile': cliente.phone?.isNotEmpty == true ? cliente.phone : false,
       'city': cliente.city?.isNotEmpty == true ? cliente.city : false,
+      'property_product_pricelist': cliente.tarifaId ?? false,
       'customer_rank': 1,
     };
   }
