@@ -5,8 +5,8 @@ import 'package:myapp/providers/auth_provider.dart';
 import 'package:myapp/pages/cliente_edit_page.dart';
 import 'package:myapp/pages/tarifas_list_page.dart';
 import 'package:myapp/pages/profile_page.dart';
+import 'package:myapp/pages/pet_type_list_page.dart';
 import 'package:myapp/theme/app_theme.dart';
-// Importar el modelo Cliente
 
 class ClienteListPage extends StatefulWidget {
   const ClienteListPage({super.key});
@@ -69,8 +69,8 @@ class _ClienteListPageState extends State<ClienteListPage> {
               ),
               IconButton(
                 icon: const Icon(Icons.sync),
-                onPressed: provider.isLoading ? null : () => provider.syncClientes(),
-                tooltip: 'Sincronizar Clientes',
+                onPressed: provider.isLoading ? null : () => provider.syncAllData(), // Corregido
+                tooltip: 'Sincronizar Todo',
               ),
               PopupMenuButton<String>(
                 onSelected: (value) {
@@ -107,7 +107,7 @@ class _ClienteListPageState extends State<ClienteListPage> {
                   decoration: const BoxDecoration(color: AppColors.surfaceDark),
                   child: Center(
                     child: Text(
-                      'Tumburú', // ¡Cambiado!
+                      'Tumburú',
                       style: context.textTheme.headlineMedium?.copyWith(color: AppColors.primary, fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -118,6 +118,16 @@ class _ClienteListPageState extends State<ClienteListPage> {
                   selected: true,
                   onTap: () => Navigator.pop(context), 
                 ),
+                ListTile(
+                  leading: const Icon(Icons.pets, color: AppColors.primary),
+                  title: Text('Razas', style: context.textTheme.titleMedium),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const PetTypeListPage()),
+                    );
+                  },
+                ),
               ],
             ),
           ),
@@ -126,7 +136,7 @@ class _ClienteListPageState extends State<ClienteListPage> {
             leading: CircleAvatar(
               backgroundColor: AppTheme.getAvatarColor(userName),
               radius: 18,
-              child: Text(userName.isNotEmpty ? userName[0].toUpperCase() : '?',
+              child: Text(userName.isNotEmpty ? userName[0].toUpperCase() : '?', 
                   style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
             ),
             title: Text(userName, style: context.textTheme.titleMedium),
@@ -164,7 +174,7 @@ class _ClienteListPageState extends State<ClienteListPage> {
       appBar: _buildAppBar(context, provider),
       drawer: _buildDrawer(context), 
       body: RefreshIndicator(
-        onRefresh: () => provider.syncClientes(),
+        onRefresh: () => provider.syncAllData(), // Corregido
         child: Column(
           children: [
             if (provider.isLoading || provider.syncMessage != null)

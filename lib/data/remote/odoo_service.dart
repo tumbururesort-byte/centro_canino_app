@@ -191,6 +191,22 @@ class OdooService {
     return [];
   }
 
+  Future<List<Map<String, dynamic>>> fetchPetTypes() async {
+    developer.log('📡 Obteniendo razas de mascotas...', name: 'OdooService');
+    final result = await _executeRpc('/web/dataset/search_read', 'call', {
+        'model': 'pet.type',
+        'fields': ['id', 'name'],
+        'domain': [],
+        'context': {},
+    });
+    if (result != null && result['records'] is List) {
+        final records = List<Map<String, dynamic>>.from(result['records']);
+        developer.log('✅ ${records.length} razas recibidas.', name: 'OdooService');
+        return records;
+    }
+    return [];
+  }
+
   Future<int> createCliente(Map<String, dynamic> data) async {
     final newId = await _executeRpc('/web/dataset/call_kw/res.partner/create', 'call', {
         'args': [data],

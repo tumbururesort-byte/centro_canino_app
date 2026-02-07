@@ -669,18 +669,281 @@ class ClientesCompanion extends UpdateCompanion<Cliente> {
   }
 }
 
+class $PetTypesTable extends PetTypes with TableInfo<$PetTypesTable, PetType> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $PetTypesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _odooIdMeta = const VerificationMeta('odooId');
+  @override
+  late final GeneratedColumn<int> odooId = GeneratedColumn<int>(
+      'odoo_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints: GeneratedColumn.constraintIsAlways('UNIQUE'));
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+      'name', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _pendingSyncMeta =
+      const VerificationMeta('pendingSync');
+  @override
+  late final GeneratedColumn<bool> pendingSync = GeneratedColumn<bool>(
+      'pending_sync', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'CHECK ("pending_sync" IN (0, 1))'),
+      defaultValue: const Constant(false));
+  @override
+  List<GeneratedColumn> get $columns => [id, odooId, name, pendingSync];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'pet_types';
+  @override
+  VerificationContext validateIntegrity(Insertable<PetType> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('odoo_id')) {
+      context.handle(_odooIdMeta,
+          odooId.isAcceptableOrUnknown(data['odoo_id']!, _odooIdMeta));
+    } else if (isInserting) {
+      context.missing(_odooIdMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+          _nameMeta, name.isAcceptableOrUnknown(data['name']!, _nameMeta));
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('pending_sync')) {
+      context.handle(
+          _pendingSyncMeta,
+          pendingSync.isAcceptableOrUnknown(
+              data['pending_sync']!, _pendingSyncMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  PetType map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PetType(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      odooId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}odoo_id'])!,
+      name: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}name'])!,
+      pendingSync: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}pending_sync'])!,
+    );
+  }
+
+  @override
+  $PetTypesTable createAlias(String alias) {
+    return $PetTypesTable(attachedDatabase, alias);
+  }
+}
+
+class PetType extends DataClass implements Insertable<PetType> {
+  final int id;
+  final int odooId;
+  final String name;
+  final bool pendingSync;
+  const PetType(
+      {required this.id,
+      required this.odooId,
+      required this.name,
+      required this.pendingSync});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['odoo_id'] = Variable<int>(odooId);
+    map['name'] = Variable<String>(name);
+    map['pending_sync'] = Variable<bool>(pendingSync);
+    return map;
+  }
+
+  PetTypesCompanion toCompanion(bool nullToAbsent) {
+    return PetTypesCompanion(
+      id: Value(id),
+      odooId: Value(odooId),
+      name: Value(name),
+      pendingSync: Value(pendingSync),
+    );
+  }
+
+  factory PetType.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PetType(
+      id: serializer.fromJson<int>(json['id']),
+      odooId: serializer.fromJson<int>(json['odooId']),
+      name: serializer.fromJson<String>(json['name']),
+      pendingSync: serializer.fromJson<bool>(json['pendingSync']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'odooId': serializer.toJson<int>(odooId),
+      'name': serializer.toJson<String>(name),
+      'pendingSync': serializer.toJson<bool>(pendingSync),
+    };
+  }
+
+  PetType copyWith({int? id, int? odooId, String? name, bool? pendingSync}) =>
+      PetType(
+        id: id ?? this.id,
+        odooId: odooId ?? this.odooId,
+        name: name ?? this.name,
+        pendingSync: pendingSync ?? this.pendingSync,
+      );
+  PetType copyWithCompanion(PetTypesCompanion data) {
+    return PetType(
+      id: data.id.present ? data.id.value : this.id,
+      odooId: data.odooId.present ? data.odooId.value : this.odooId,
+      name: data.name.present ? data.name.value : this.name,
+      pendingSync:
+          data.pendingSync.present ? data.pendingSync.value : this.pendingSync,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PetType(')
+          ..write('id: $id, ')
+          ..write('odooId: $odooId, ')
+          ..write('name: $name, ')
+          ..write('pendingSync: $pendingSync')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, odooId, name, pendingSync);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PetType &&
+          other.id == this.id &&
+          other.odooId == this.odooId &&
+          other.name == this.name &&
+          other.pendingSync == this.pendingSync);
+}
+
+class PetTypesCompanion extends UpdateCompanion<PetType> {
+  final Value<int> id;
+  final Value<int> odooId;
+  final Value<String> name;
+  final Value<bool> pendingSync;
+  const PetTypesCompanion({
+    this.id = const Value.absent(),
+    this.odooId = const Value.absent(),
+    this.name = const Value.absent(),
+    this.pendingSync = const Value.absent(),
+  });
+  PetTypesCompanion.insert({
+    this.id = const Value.absent(),
+    required int odooId,
+    required String name,
+    this.pendingSync = const Value.absent(),
+  })  : odooId = Value(odooId),
+        name = Value(name);
+  static Insertable<PetType> custom({
+    Expression<int>? id,
+    Expression<int>? odooId,
+    Expression<String>? name,
+    Expression<bool>? pendingSync,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (odooId != null) 'odoo_id': odooId,
+      if (name != null) 'name': name,
+      if (pendingSync != null) 'pending_sync': pendingSync,
+    });
+  }
+
+  PetTypesCompanion copyWith(
+      {Value<int>? id,
+      Value<int>? odooId,
+      Value<String>? name,
+      Value<bool>? pendingSync}) {
+    return PetTypesCompanion(
+      id: id ?? this.id,
+      odooId: odooId ?? this.odooId,
+      name: name ?? this.name,
+      pendingSync: pendingSync ?? this.pendingSync,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (odooId.present) {
+      map['odoo_id'] = Variable<int>(odooId.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (pendingSync.present) {
+      map['pending_sync'] = Variable<bool>(pendingSync.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PetTypesCompanion(')
+          ..write('id: $id, ')
+          ..write('odooId: $odooId, ')
+          ..write('name: $name, ')
+          ..write('pendingSync: $pendingSync')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
   late final $TarifasTable tarifas = $TarifasTable(this);
   late final $ClientesTable clientes = $ClientesTable(this);
+  late final $PetTypesTable petTypes = $PetTypesTable(this);
   late final ClientesDao clientesDao = ClientesDao(this as AppDatabase);
   late final TarifasDao tarifasDao = TarifasDao(this as AppDatabase);
+  late final PetTypesDao petTypesDao = PetTypesDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
-  List<DatabaseSchemaEntity> get allSchemaEntities => [tarifas, clientes];
+  List<DatabaseSchemaEntity> get allSchemaEntities =>
+      [tarifas, clientes, petTypes];
 }
 
 typedef $$TarifasTableCreateCompanionBuilder = TarifasCompanion Function({
@@ -1222,6 +1485,150 @@ typedef $$ClientesTableProcessedTableManager = ProcessedTableManager<
     (Cliente, $$ClientesTableReferences),
     Cliente,
     PrefetchHooks Function({bool tarifaId})>;
+typedef $$PetTypesTableCreateCompanionBuilder = PetTypesCompanion Function({
+  Value<int> id,
+  required int odooId,
+  required String name,
+  Value<bool> pendingSync,
+});
+typedef $$PetTypesTableUpdateCompanionBuilder = PetTypesCompanion Function({
+  Value<int> id,
+  Value<int> odooId,
+  Value<String> name,
+  Value<bool> pendingSync,
+});
+
+class $$PetTypesTableFilterComposer
+    extends Composer<_$AppDatabase, $PetTypesTable> {
+  $$PetTypesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get odooId => $composableBuilder(
+      column: $table.odooId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get pendingSync => $composableBuilder(
+      column: $table.pendingSync, builder: (column) => ColumnFilters(column));
+}
+
+class $$PetTypesTableOrderingComposer
+    extends Composer<_$AppDatabase, $PetTypesTable> {
+  $$PetTypesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get odooId => $composableBuilder(
+      column: $table.odooId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get pendingSync => $composableBuilder(
+      column: $table.pendingSync, builder: (column) => ColumnOrderings(column));
+}
+
+class $$PetTypesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $PetTypesTable> {
+  $$PetTypesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get odooId =>
+      $composableBuilder(column: $table.odooId, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<bool> get pendingSync => $composableBuilder(
+      column: $table.pendingSync, builder: (column) => column);
+}
+
+class $$PetTypesTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $PetTypesTable,
+    PetType,
+    $$PetTypesTableFilterComposer,
+    $$PetTypesTableOrderingComposer,
+    $$PetTypesTableAnnotationComposer,
+    $$PetTypesTableCreateCompanionBuilder,
+    $$PetTypesTableUpdateCompanionBuilder,
+    (PetType, BaseReferences<_$AppDatabase, $PetTypesTable, PetType>),
+    PetType,
+    PrefetchHooks Function()> {
+  $$PetTypesTableTableManager(_$AppDatabase db, $PetTypesTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$PetTypesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$PetTypesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$PetTypesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<int> odooId = const Value.absent(),
+            Value<String> name = const Value.absent(),
+            Value<bool> pendingSync = const Value.absent(),
+          }) =>
+              PetTypesCompanion(
+            id: id,
+            odooId: odooId,
+            name: name,
+            pendingSync: pendingSync,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required int odooId,
+            required String name,
+            Value<bool> pendingSync = const Value.absent(),
+          }) =>
+              PetTypesCompanion.insert(
+            id: id,
+            odooId: odooId,
+            name: name,
+            pendingSync: pendingSync,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$PetTypesTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $PetTypesTable,
+    PetType,
+    $$PetTypesTableFilterComposer,
+    $$PetTypesTableOrderingComposer,
+    $$PetTypesTableAnnotationComposer,
+    $$PetTypesTableCreateCompanionBuilder,
+    $$PetTypesTableUpdateCompanionBuilder,
+    (PetType, BaseReferences<_$AppDatabase, $PetTypesTable, PetType>),
+    PetType,
+    PrefetchHooks Function()>;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -1230,4 +1637,6 @@ class $AppDatabaseManager {
       $$TarifasTableTableManager(_db, _db.tarifas);
   $$ClientesTableTableManager get clientes =>
       $$ClientesTableTableManager(_db, _db.clientes);
+  $$PetTypesTableTableManager get petTypes =>
+      $$PetTypesTableTableManager(_db, _db.petTypes);
 }

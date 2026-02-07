@@ -62,7 +62,7 @@ class _ClientesViewState extends State<_ClientesView> {
                         ),
                       )
                     : RefreshIndicator(
-                        onRefresh: () => provider.syncClientes(),
+                        onRefresh: () => provider.syncAllData(), // Corregido
                         color: AppColors.primary,
                         backgroundColor: AppColors.surfaceDark,
                         child: filteredClientes.isEmpty
@@ -179,7 +179,7 @@ class _ClientesViewState extends State<_ClientesView> {
               if (searchQuery.isEmpty) ...[
                 const SizedBox(height: 32),
                 ElevatedButton.icon(
-                  onPressed: () => context.read<ClientesProvider>().syncClientes(),
+                  onPressed: () => context.read<ClientesProvider>().syncAllData(), // Corregido
                   icon: const Icon(Icons.sync),
                   label: const Text('Sincronizar ahora'),
                 ),

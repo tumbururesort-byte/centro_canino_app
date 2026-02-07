@@ -14,7 +14,7 @@ class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
   final _urlController = TextEditingController(text: 'https://tumburu.es');
   final _dbController = TextEditingController(text: 'betat1');
-  final _emailController = TextEditingController(text: 'duvalsoft@gmail.com');
+  final _emailController = TextEditingController(text: 'duvalsofte@gmail.com');
   final _passwordController = TextEditingController(text: 'Odi1@99TU');
 
   bool _isLoading = false;

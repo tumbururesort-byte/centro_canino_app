@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:drift/drift.dart';
+import 'package:myapp/data/local/dao/pet_types_dao.dart';
 import 'package:myapp/data/local/dao/tarifas_dao.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'remote/odoo_service.dart';
@@ -7,10 +8,11 @@ import 'local/app_database.dart';
 import 'local/dao/clientes_dao.dart';
 import 'dart:developer' as developer;
 
-class ClientesRepository {
+class AppDataRepository {
   final OdooService? odooService;
   final ClientesDao clientesDao;
   final TarifasDao tarifasDao;
+  final PetTypesDao petTypesDao;
   final SharedPreferences sharedPreferences;
 
   var _progressStreamController = StreamController<String>.broadcast();
@@ -18,10 +20,11 @@ class ClientesRepository {
 
   static const String lastSyncTimestampKey = 'last_sync_timestamp';
 
-  ClientesRepository({
+  AppDataRepository({
     this.odooService,
     required this.clientesDao,
-    required this.tarifasDao, 
+    required this.tarifasDao,
+    required this.petTypesDao,
     required this.sharedPreferences,
   });
 
@@ -31,16 +34,35 @@ class ClientesRepository {
     return value.toString();
   }
 
-  Stream<List<Cliente>> watchClientes() {
-    return clientesDao.watchAllClientes();
+  // Watchers
+  Stream<List<Cliente>> watchClientes() => clientesDao.watchAllClientes();
+  Stream<List<Tarifa>> watchTarifas() => tarifasDao.watchAllTarifas();
+  Stream<List<PetType>> watchPetTypes() => petTypesDao.watchAllPetTypes();
+
+  // Métodos de sincronización individuales y robustos
+  Future<bool> syncPetTypes() async {
+    if (odooService == null || !odooService!.isUserLoggedIn) return true;
+    try {
+      _progressStreamController.add('Actualizando razas de mascotas...');
+      final petTypesFromOdoo = await odooService!.fetchPetTypes();
+      if (petTypesFromOdoo.isNotEmpty) {
+        final petTypesToSave = petTypesFromOdoo.map((data) => PetTypesCompanion(
+          odooId: Value(data['id'] as int),
+          name: Value(_sanitizeString(data['name'])),
+        )).toList();
+        await petTypesDao.insertOrUpdateAll(petTypesToSave);
+        _progressStreamController.add('${petTypesToSave.length} razas actualizadas.');
+      }
+      return true;
+    } catch (e) {
+      developer.log('Error sincronizando razas: $e', name: 'AppDataRepository');
+      _progressStreamController.add('❌ Error actualizando razas.');
+      return false;
+    }
   }
 
-  Stream<List<Tarifa>> watchTarifas() {
-    return tarifasDao.watchAllTarifas();
-  }
-
-  Future<void> syncTarifas() async {
-    if (odooService == null || !odooService!.isUserLoggedIn) return;
+  Future<bool> syncTarifas() async {
+    if (odooService == null || !odooService!.isUserLoggedIn) return true;
     try {
       _progressStreamController.add('Actualizando lista de tarifas...');
       final tarifasFromOdoo = await odooService!.fetchTarifas();
@@ -50,15 +72,52 @@ class ClientesRepository {
           name: Value(_sanitizeString(data['name'])),
         )).toList();
         await tarifasDao.insertOrUpdateAll(tarifasToSave);
-        _progressStreamController.add('Lista de tarifas actualizada.');
+        _progressStreamController.add('${tarifasToSave.length} tarifas actualizadas.');
       }
+      return true;
     } catch (e) {
-      developer.log('Error sincronizando tarifas: $e', name: 'ClientesRepository');
-       _progressStreamController.add('❌ Error actualizando tarifas.');
+      developer.log('Error sincronizando tarifas: $e', name: 'AppDataRepository');
+      _progressStreamController.add('❌ Error actualizando tarifas.');
+      return false;
     }
   }
 
-  Future<void> syncClientes() async {
+  Future<bool> _syncClientesData() async {
+     if (odooService == null || !odooService!.isUserLoggedIn) return true;
+    try {
+      final lastSync = _getLastSyncDate();
+      final totalToSync = await odooService!.countClientes(lastSync: lastSync);
+
+      if (totalToSync == 0) {
+        _progressStreamController.add('Clientes al día.');
+        return true;
+      }
+
+      _progressStreamController.add('$totalToSync clientes para descargar.');
+
+      const chunkSize = 50;
+      for (int offset = 0; offset < totalToSync; offset += chunkSize) {
+        final message = 'Descargando clientes... ${offset + 1} - ${offset + chunkSize > totalToSync ? totalToSync : offset + chunkSize} de $totalToSync';
+        _progressStreamController.add(message);
+
+        final clientesFromOdoo = await odooService!.fetchClientesChunk(lastSync: lastSync, limit: chunkSize, offset: offset);
+        if (clientesFromOdoo.isNotEmpty) {
+          final clientesToSave = clientesFromOdoo.map((data) => _clienteFromOdooData(data)).toList();
+          await clientesDao.insertOrUpdateAll(clientesToSave);
+        }
+      }
+       _progressStreamController.add('Clientes actualizados.');
+       return true;
+    } catch (e, s) {
+      final errorMessage = '❌ Error descargando clientes: $e';
+      _progressStreamController.add(errorMessage);
+      developer.log(errorMessage, stackTrace: s, name: 'AppDataRepository');
+      return false;
+    }
+  }
+
+  // Orquestador principal de sincronización
+  Future<void> syncAllData() async {
     if (_progressStreamController.isClosed) {
       _progressStreamController = StreamController<String>.broadcast();
     }
@@ -68,50 +127,35 @@ class ClientesRepository {
       return;
     }
 
-    developer.log('🚀 Iniciando proceso de sincronización...', name: 'ClientesRepository');
-    _progressStreamController.add('Iniciando sincronización...');
+    developer.log('🚀 Iniciando proceso de sincronización completo...', name: 'AppDataRepository');
+    _progressStreamController.add('Iniciando sincronización total...');
 
-    try {
-      await _syncPendientes();
+    bool syncOk = true;
 
-      final lastSync = _getLastSyncDate();
-      final totalToSync = await odooService!.countClientes(lastSync: lastSync);
-      
-      if (totalToSync == 0) {
-         _progressStreamController.add('👍 ¡Todo está al día!');
-        await _saveLastSyncDate();
-        return;
-      }
+    // 1. Sincronizar cambios locales pendientes
+    syncOk &= await _syncPendientes();
 
-      _progressStreamController.add('$totalToSync clientes para descargar.');
-
-      const chunkSize = 50;
-      for (int offset = 0; offset < totalToSync; offset += chunkSize) {
-        final message = 'Descargando... ${offset + 1} - ${offset + chunkSize > totalToSync ? totalToSync : offset + chunkSize} de $totalToSync';
-        _progressStreamController.add(message);
-
-        final clientesFromOdoo = await odooService!.fetchClientesChunk(lastSync: lastSync, limit: chunkSize, offset: offset);
-        if (clientesFromOdoo.isNotEmpty) {
-          final clientesToSave = clientesFromOdoo.map((data) => _clienteFromOdooData(data)).toList();
-          await clientesDao.insertOrUpdateAll(clientesToSave);
-        }
-      }
-      
+    // 2. Sincronizar datos maestros
+    syncOk &= await syncPetTypes();
+    syncOk &= await syncTarifas();
+    
+    // 3. Sincronizar datos principales
+    syncOk &= await _syncClientesData();
+    
+    if (syncOk) {
       await _saveLastSyncDate();
       _progressStreamController.add('✅ Sincronización completada.');
-
-    } catch (e, s) {
-      final errorMessage = '❌ Error durante la sincronización: $e';
-      _progressStreamController.add(errorMessage);
-      developer.log(errorMessage, stackTrace: s, name: 'ClientesRepository');
+    } else {
+      _progressStreamController.add('⚠️ Sincronización completada con errores.');
     }
   }
 
-  Future<void> _syncPendientes() async {
+  Future<bool> _syncPendientes() async {
     final pendientes = await clientesDao.getClientesPendientes();
-    if (pendientes.isEmpty) return;
+    if (pendientes.isEmpty) return true;
 
     _progressStreamController.add('Enviando ${pendientes.length} cambios locales...');
+    bool allSuccess = true;
     
     for (final cliente in pendientes) {
       try {
@@ -130,12 +174,16 @@ class ClientesRepository {
           await clientesDao.updateCliente(updatedCliente);
         }
       } catch (e) {
-        developer.log('Error sincronizando cliente ${cliente.id}: $e', name: 'ClientesRepository');
+        allSuccess = false;
+        developer.log('Error sincronizando cliente ${cliente.id}: $e', name: 'AppDataRepository');
+         _progressStreamController.add('⚠️ Error enviando el cliente ${cliente.name}. Se reintentará luego.');
       }
     }
     _progressStreamController.add('Cambios locales enviados.');
+    return allSuccess;
   }
 
+  // Métodos de CRUD para Clientes
   Future<void> createCliente(String name, String email, String phone, String city, int? tarifaId) async {
     final cliente = ClientesCompanion(
       name: Value(name),
@@ -146,21 +194,42 @@ class ClientesRepository {
       pendingSync: const Value(true),
     );
     await clientesDao.insertCliente(cliente);
-    syncClientes();
+    syncAllData();
   }
 
   Future<void> updateCliente(Cliente cliente) async {
     final updatedCliente = cliente.copyWith(pendingSync: true);
     await clientesDao.updateCliente(updatedCliente);
-    syncClientes();
+    syncAllData();
   }
 
   Future<void> deleteCliente(Cliente cliente) async {
     final updatedCliente = cliente.copyWith(pendingSync: true, isDeleted: true);
     await clientesDao.updateCliente(updatedCliente);
-    syncClientes(); 
+    syncAllData(); 
   }
 
+  // Métodos de CRUD para Razas
+  Future<void> createPetType(String name) async {
+    final petType = PetTypesCompanion(
+      name: Value(name),
+    );
+    await petTypesDao.insertPetType(petType);
+    syncAllData();
+  }
+
+  Future<void> updatePetType(PetType petType) async {
+    await petTypesDao.updatePetType(petType);
+    syncAllData();
+  }
+
+  Future<void> deletePetType(PetType petType) async {
+    await petTypesDao.deletePetType(petType);
+    syncAllData(); 
+  }
+
+
+  // Helpers
   DateTime? _getLastSyncDate() {
     final lastSyncString = sharedPreferences.getString(lastSyncTimestampKey);
     return lastSyncString != null ? DateTime.parse(lastSyncString) : null;
