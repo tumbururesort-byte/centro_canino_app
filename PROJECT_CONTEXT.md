@@ -1,6 +1,7 @@
-]633;E;echo "# Proyecto Flutter – Contexto para IA";4c913797-a980-4d2d-abcf-c94128636dee]633;C# Proyecto Flutter – Contexto para IA
+]633;E;echo "# Proyecto Flutter – Contexto para IA";8241afb0-6147-4f3a-89bb-dcc1d45dd1b3]633;C# Proyecto Flutter – Contexto para IA
 
 ## pubspec.yaml
+```yaml
 name: myapp
 description: "App offline-first de clientes con Odoo"
 publish_to: 'none'
@@ -50,13 +51,12 @@ flutter_launcher_icons:
   image_path: "assets/images/launcher_icon.png"
   adaptive_icon_background: "#FFFFFF"
   adaptive_icon_foreground: "assets/images/launcher_icon.png"
+```
 
 ## Código fuente (lib/)
 
---------------------------------
 ### FILE: lib/data/clientes_repository.dart
---------------------------------
-
+```dart
 import 'dart:async';
 import 'package:drift/drift.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -96,74 +96,42 @@ class ClientesRepository {
       _progressStreamController = StreamController<String>.broadcast();
     }
 
-    if (odooService == null) {
-      _progressStreamController.add("Sesión no iniciada. No se puede sincronizar.");
+    if (odooService == null || !odooService!.isUserLoggedIn) {
+      _progressStreamController.add("Sincronización pausada. Inicia sesión para continuar.");
       return;
-    }
-    final prefs = sharedPreferences;
-    DateTime? lastSync;
-
-    final lastSyncString = prefs.getString(lastSyncTimestampKey);
-    if (lastSyncString != null) {
-      lastSync = DateTime.parse(lastSyncString);
     }
 
     developer.log('🚀 Iniciando proceso de sincronización...', name: 'ClientesRepository');
     _progressStreamController.add('Iniciando sincronización...');
 
     try {
-      _progressStreamController.add('Contando registros en Odoo...');
+      await _syncPendientes();
+
+      final lastSync = _getLastSyncDate();
       final totalToSync = await odooService!.countClientes(lastSync: lastSync);
       
       if (totalToSync == 0) {
-        _progressStreamController.add('👍 ¡Todo está al día! No hay clientes nuevos para sincronizar.');
-        await prefs.setString(lastSyncTimestampKey, DateTime.now().toIso8601String());
+        _progressStreamController.add('👍 ¡Todo está al día!');
+        await _saveLastSyncDate();
         return;
       }
 
       _progressStreamController.add('$totalToSync clientes para descargar.');
 
-      final chunkSize = 50;
-      int downloadedCount = 0;
-
+      const chunkSize = 50;
       for (int offset = 0; offset < totalToSync; offset += chunkSize) {
-        final message = 'Descargando clientes... ${offset + 1} - ${offset + chunkSize > totalToSync ? totalToSync : offset + chunkSize} de $totalToSync';
+        final message = 'Descargando... ${offset + 1} - ${offset + chunkSize > totalToSync ? totalToSync : offset + chunkSize} de $totalToSync';
         _progressStreamController.add(message);
 
-        final clientesFromOdoo = await odooService!.fetchClientesChunk(
-          lastSync: lastSync,
-          limit: chunkSize,
-          offset: offset,
-        );
-
+        final clientesFromOdoo = await odooService!.fetchClientesChunk(lastSync: lastSync, limit: chunkSize, offset: offset);
         if (clientesFromOdoo.isNotEmpty) {
-          final clientesToSave = clientesFromOdoo.map((clienteData) {
-            // **LA SOLUCIÓN**
-            // Priorizamos 'mobile' sobre 'phone'.
-            final mobile = _sanitizeString(clienteData['mobile']);
-            final phone = _sanitizeString(clienteData['phone']);
-            final telefonoFinal = mobile.isNotEmpty ? mobile : phone;
-
-            return ClientesCompanion(
-              odooId: Value(clienteData['id'] as int),
-              name: Value(_sanitizeString(clienteData['name'], defaultValue: 'Nombre no disponible')),
-              email: Value(_sanitizeString(clienteData['email'])),
-              phone: Value(telefonoFinal), // Usamos el teléfono final
-              city: Value(_sanitizeString(clienteData['city'])),
-              pendingSync: const Value(false),
-            );
-          });
-
-          await clientesDao.insertOrUpdateAll(clientesToSave.toList());
-          downloadedCount += clientesFromOdoo.length;
+          final clientesToSave = clientesFromOdoo.map((data) => _clienteFromOdooData(data)).toList();
+          await clientesDao.insertOrUpdateAll(clientesToSave);
         }
       }
       
-      final syncTime = DateTime.now();
-      await prefs.setString(lastSyncTimestampKey, syncTime.toIso8601String());
-      
-      final successMessage = '✅ Sincronización completada. $downloadedCount clientes actualizados.';
-      _progressStreamController.add(successMessage);
+      await _saveLastSyncDate();
+      _progressStreamController.add('✅ Sincronización completada.');
 
     } catch (e, s) {
       final errorMessage = '❌ Error durante la sincronización: $e';
@@ -172,59 +140,102 @@ class ClientesRepository {
     }
   }
 
+  Future<void> _syncPendientes() async {
+    final pendientes = await clientesDao.getClientesPendientes();
+    if (pendientes.isEmpty) return;
+
+    _progressStreamController.add('Enviando ${pendientes.length} cambios locales...');
+    
+    for (final cliente in pendientes) {
+      try {
+        if (cliente.isDeleted) {
+          if (cliente.odooId != null) {
+            await odooService!.deleteCliente(cliente.odooId!);
+          }
+          await clientesDao.deleteCliente(cliente);
+        } else if (cliente.odooId == null) {
+          final newId = await odooService!.createCliente(_clienteToOdooData(cliente));
+          final updatedCliente = cliente.copyWith(odooId: Value(newId), pendingSync: false);
+          await clientesDao.updateCliente(updatedCliente);
+        } else {
+          await odooService!.updateCliente(cliente.odooId!, _clienteToOdooData(cliente));
+          final updatedCliente = cliente.copyWith(pendingSync: false);
+          await clientesDao.updateCliente(updatedCliente);
+        }
+      } catch (e) {
+        developer.log('Error sincronizando cliente ${cliente.id}: $e', name: 'ClientesRepository');
+      }
+    }
+    _progressStreamController.add('Cambios locales enviados.');
+  }
+
+  Future<void> createCliente(String name, String email, String phone, String city) async {
+    final cliente = ClientesCompanion(
+      name: Value(name),
+      email: Value(email),
+      phone: Value(phone),
+      city: Value(city),
+      pendingSync: const Value(true),
+    );
+    await clientesDao.insertCliente(cliente);
+    syncClientes();
+  }
+
+  Future<void> updateCliente(Cliente cliente) async {
+    final updatedCliente = cliente.copyWith(pendingSync: true);
+    await clientesDao.updateCliente(updatedCliente);
+    syncClientes();
+  }
+
+  Future<void> deleteCliente(Cliente cliente) async {
+    final updatedCliente = cliente.copyWith(pendingSync: true, isDeleted: true);
+    await clientesDao.updateCliente(updatedCliente);
+    syncClientes(); 
+  }
+
+  DateTime? _getLastSyncDate() {
+    final lastSyncString = sharedPreferences.getString(lastSyncTimestampKey);
+    return lastSyncString != null ? DateTime.parse(lastSyncString) : null;
+  }
+
+  Future<void> _saveLastSyncDate() async {
+    await sharedPreferences.setString(lastSyncTimestampKey, DateTime.now().toIso8601String());
+  }
+
+  ClientesCompanion _clienteFromOdooData(Map<String, dynamic> data) {
+    final mobile = _sanitizeString(data['mobile']);
+    final phone = _sanitizeString(data['phone']);
+    return ClientesCompanion(
+      odooId: Value(data['id'] as int),
+      name: Value(_sanitizeString(data['name'], defaultValue: 'Nombre no disponible')),
+      email: Value(_sanitizeString(data['email'])),
+      phone: Value(mobile.isNotEmpty ? mobile : phone),
+      city: Value(_sanitizeString(data['city'])),
+      pendingSync: const Value(false),
+    );
+  }
+
+  Map<String, dynamic> _clienteToOdooData(Cliente cliente) {
+    return {
+      'name': cliente.name,
+      'email': cliente.email?.isNotEmpty == true ? cliente.email : false,
+      'mobile': cliente.phone?.isNotEmpty == true ? cliente.phone : false,
+      'city': cliente.city?.isNotEmpty == true ? cliente.city : false,
+      'customer_rank': 1,
+    };
+  }
+
   void dispose() {
     if (!_progressStreamController.isClosed) {
       _progressStreamController.close();
     }
   }
-
-  Future<void> createCliente(String name, String email, String phone, String city) async {
-    if (odooService == null) throw Exception("Servicio Odoo no disponible");
-    // Al crear un cliente, asumimos que el teléfono que nos dan es el móvil.
-    final clienteData = {'name': name, 'email': email, 'mobile': phone, 'city': city, 'customer_rank': 1};
-    try {
-      final newOdooId = await odooService!.createCliente(clienteData);
-      await clientesDao.insertCliente(ClientesCompanion(
-        odooId: Value(newOdooId),
-        name: Value(name),
-        email: Value(email),
-        phone: Value(phone),
-        city: Value(city),
-      ));
-    } catch (e) {
-      developer.log('❌ Error al crear el cliente: $e', name: 'ClientesRepository');
-      rethrow;
-    }
-  }
-
-  Future<void> updateCliente(Cliente cliente) async {
-    if (odooService == null) throw Exception("Servicio Odoo no disponible");
-    // Al actualizar, también enviamos el teléfono al campo 'mobile' de Odoo.
-    final clienteData = {'name': cliente.name, 'email': cliente.email, 'mobile': cliente.phone, 'city': cliente.city};
-    try {
-      await odooService!.updateCliente(cliente.odooId!, clienteData);
-      await clientesDao.updateCliente(cliente);
-    } catch (e) {
-      developer.log('❌ Error al actualizar el cliente: $e', name: 'ClientesRepository');
-      rethrow;
-    }
-  }
-
-  Future<void> deleteCliente(Cliente cliente) async {
-    if (odooService == null) throw Exception("Servicio Odoo no disponible");
-    try {
-      await odooService!.deleteCliente(cliente.odooId!);
-      await clientesDao.deleteCliente(cliente);
-    } catch (e) {
-      developer.log('❌ Error al eliminar el cliente: $e', name: 'ClientesRepository');
-      rethrow;
-    }
-  }
 }
+```
+---
 
---------------------------------
 ### FILE: lib/data/local/app_database.dart
---------------------------------
+```dart
 import 'package:drift/drift.dart';
 import 'connection/mobile.dart';
 import 'clientes_table.dart';
@@ -261,837 +272,29 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 }
+```
+---
 
---------------------------------
-### FILE: lib/data/local/app_database.g.dart
---------------------------------
-// GENERATED CODE - DO NOT MODIFY BY HAND
-
-part of 'app_database.dart';
-
-// ignore_for_file: type=lint
-class $ClientesTable extends Clientes with TableInfo<$ClientesTable, Cliente> {
-  @override
-  final GeneratedDatabase attachedDatabase;
-  final String? _alias;
-  $ClientesTable(this.attachedDatabase, [this._alias]);
-  static const VerificationMeta _idMeta = const VerificationMeta('id');
-  @override
-  late final GeneratedColumn<int> id = GeneratedColumn<int>(
-      'id', aliasedName, false,
-      hasAutoIncrement: true,
-      type: DriftSqlType.int,
-      requiredDuringInsert: false,
-      defaultConstraints:
-          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
-  static const VerificationMeta _odooIdMeta = const VerificationMeta('odooId');
-  @override
-  late final GeneratedColumn<int> odooId = GeneratedColumn<int>(
-      'odoo_id', aliasedName, true,
-      type: DriftSqlType.int,
-      requiredDuringInsert: false,
-      defaultConstraints: GeneratedColumn.constraintIsAlways('UNIQUE'));
-  static const VerificationMeta _nameMeta = const VerificationMeta('name');
-  @override
-  late final GeneratedColumn<String> name = GeneratedColumn<String>(
-      'name', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
-  static const VerificationMeta _emailMeta = const VerificationMeta('email');
-  @override
-  late final GeneratedColumn<String> email = GeneratedColumn<String>(
-      'email', aliasedName, true,
-      type: DriftSqlType.string, requiredDuringInsert: false);
-  static const VerificationMeta _phoneMeta = const VerificationMeta('phone');
-  @override
-  late final GeneratedColumn<String> phone = GeneratedColumn<String>(
-      'phone', aliasedName, true,
-      type: DriftSqlType.string, requiredDuringInsert: false);
-  static const VerificationMeta _cityMeta = const VerificationMeta('city');
-  @override
-  late final GeneratedColumn<String> city = GeneratedColumn<String>(
-      'city', aliasedName, true,
-      type: DriftSqlType.string, requiredDuringInsert: false);
-  static const VerificationMeta _pendingSyncMeta =
-      const VerificationMeta('pendingSync');
-  @override
-  late final GeneratedColumn<bool> pendingSync = GeneratedColumn<bool>(
-      'pending_sync', aliasedName, false,
-      type: DriftSqlType.bool,
-      requiredDuringInsert: false,
-      defaultConstraints: GeneratedColumn.constraintIsAlways(
-          'CHECK ("pending_sync" IN (0, 1))'),
-      defaultValue: const Constant(false));
-  static const VerificationMeta _isDeletedMeta =
-      const VerificationMeta('isDeleted');
-  @override
-  late final GeneratedColumn<bool> isDeleted = GeneratedColumn<bool>(
-      'is_deleted', aliasedName, false,
-      type: DriftSqlType.bool,
-      requiredDuringInsert: false,
-      defaultConstraints:
-          GeneratedColumn.constraintIsAlways('CHECK ("is_deleted" IN (0, 1))'),
-      defaultValue: const Constant(false));
-  static const VerificationMeta _lastSyncMeta =
-      const VerificationMeta('lastSync');
-  @override
-  late final GeneratedColumn<DateTime> lastSync = GeneratedColumn<DateTime>(
-      'last_sync', aliasedName, true,
-      type: DriftSqlType.dateTime, requiredDuringInsert: false);
-  static const VerificationMeta _createdAtMeta =
-      const VerificationMeta('createdAt');
-  @override
-  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
-      'created_at', aliasedName, false,
-      type: DriftSqlType.dateTime,
-      requiredDuringInsert: false,
-      defaultValue: currentDateAndTime);
-  static const VerificationMeta _updatedAtMeta =
-      const VerificationMeta('updatedAt');
-  @override
-  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
-      'updated_at', aliasedName, false,
-      type: DriftSqlType.dateTime,
-      requiredDuringInsert: false,
-      defaultValue: currentDateAndTime);
-  @override
-  List<GeneratedColumn> get $columns => [
-        id,
-        odooId,
-        name,
-        email,
-        phone,
-        city,
-        pendingSync,
-        isDeleted,
-        lastSync,
-        createdAt,
-        updatedAt
-      ];
-  @override
-  String get aliasedName => _alias ?? actualTableName;
-  @override
-  String get actualTableName => $name;
-  static const String $name = 'clientes';
-  @override
-  VerificationContext validateIntegrity(Insertable<Cliente> instance,
-      {bool isInserting = false}) {
-    final context = VerificationContext();
-    final data = instance.toColumns(true);
-    if (data.containsKey('id')) {
-      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
-    }
-    if (data.containsKey('odoo_id')) {
-      context.handle(_odooIdMeta,
-          odooId.isAcceptableOrUnknown(data['odoo_id']!, _odooIdMeta));
-    }
-    if (data.containsKey('name')) {
-      context.handle(
-          _nameMeta, name.isAcceptableOrUnknown(data['name']!, _nameMeta));
-    } else if (isInserting) {
-      context.missing(_nameMeta);
-    }
-    if (data.containsKey('email')) {
-      context.handle(
-          _emailMeta, email.isAcceptableOrUnknown(data['email']!, _emailMeta));
-    }
-    if (data.containsKey('phone')) {
-      context.handle(
-          _phoneMeta, phone.isAcceptableOrUnknown(data['phone']!, _phoneMeta));
-    }
-    if (data.containsKey('city')) {
-      context.handle(
-          _cityMeta, city.isAcceptableOrUnknown(data['city']!, _cityMeta));
-    }
-    if (data.containsKey('pending_sync')) {
-      context.handle(
-          _pendingSyncMeta,
-          pendingSync.isAcceptableOrUnknown(
-              data['pending_sync']!, _pendingSyncMeta));
-    }
-    if (data.containsKey('is_deleted')) {
-      context.handle(_isDeletedMeta,
-          isDeleted.isAcceptableOrUnknown(data['is_deleted']!, _isDeletedMeta));
-    }
-    if (data.containsKey('last_sync')) {
-      context.handle(_lastSyncMeta,
-          lastSync.isAcceptableOrUnknown(data['last_sync']!, _lastSyncMeta));
-    }
-    if (data.containsKey('created_at')) {
-      context.handle(_createdAtMeta,
-          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
-    }
-    if (data.containsKey('updated_at')) {
-      context.handle(_updatedAtMeta,
-          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
-    }
-    return context;
-  }
-
-  @override
-  Set<GeneratedColumn> get $primaryKey => {id};
-  @override
-  Cliente map(Map<String, dynamic> data, {String? tablePrefix}) {
-    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return Cliente(
-      id: attachedDatabase.typeMapping
-          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
-      odooId: attachedDatabase.typeMapping
-          .read(DriftSqlType.int, data['${effectivePrefix}odoo_id']),
-      name: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}name'])!,
-      email: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}email']),
-      phone: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}phone']),
-      city: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}city']),
-      pendingSync: attachedDatabase.typeMapping
-          .read(DriftSqlType.bool, data['${effectivePrefix}pending_sync'])!,
-      isDeleted: attachedDatabase.typeMapping
-          .read(DriftSqlType.bool, data['${effectivePrefix}is_deleted'])!,
-      lastSync: attachedDatabase.typeMapping
-          .read(DriftSqlType.dateTime, data['${effectivePrefix}last_sync']),
-      createdAt: attachedDatabase.typeMapping
-          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
-      updatedAt: attachedDatabase.typeMapping
-          .read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
-    );
-  }
-
-  @override
-  $ClientesTable createAlias(String alias) {
-    return $ClientesTable(attachedDatabase, alias);
-  }
-}
-
-class Cliente extends DataClass implements Insertable<Cliente> {
-  final int id;
-  final int? odooId;
-  final String name;
-  final String? email;
-  final String? phone;
-  final String? city;
-  final bool pendingSync;
-  final bool isDeleted;
-  final DateTime? lastSync;
-  final DateTime createdAt;
-  final DateTime updatedAt;
-  const Cliente(
-      {required this.id,
-      this.odooId,
-      required this.name,
-      this.email,
-      this.phone,
-      this.city,
-      required this.pendingSync,
-      required this.isDeleted,
-      this.lastSync,
-      required this.createdAt,
-      required this.updatedAt});
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    map['id'] = Variable<int>(id);
-    if (!nullToAbsent || odooId != null) {
-      map['odoo_id'] = Variable<int>(odooId);
-    }
-    map['name'] = Variable<String>(name);
-    if (!nullToAbsent || email != null) {
-      map['email'] = Variable<String>(email);
-    }
-    if (!nullToAbsent || phone != null) {
-      map['phone'] = Variable<String>(phone);
-    }
-    if (!nullToAbsent || city != null) {
-      map['city'] = Variable<String>(city);
-    }
-    map['pending_sync'] = Variable<bool>(pendingSync);
-    map['is_deleted'] = Variable<bool>(isDeleted);
-    if (!nullToAbsent || lastSync != null) {
-      map['last_sync'] = Variable<DateTime>(lastSync);
-    }
-    map['created_at'] = Variable<DateTime>(createdAt);
-    map['updated_at'] = Variable<DateTime>(updatedAt);
-    return map;
-  }
-
-  ClientesCompanion toCompanion(bool nullToAbsent) {
-    return ClientesCompanion(
-      id: Value(id),
-      odooId:
-          odooId == null && nullToAbsent ? const Value.absent() : Value(odooId),
-      name: Value(name),
-      email:
-          email == null && nullToAbsent ? const Value.absent() : Value(email),
-      phone:
-          phone == null && nullToAbsent ? const Value.absent() : Value(phone),
-      city: city == null && nullToAbsent ? const Value.absent() : Value(city),
-      pendingSync: Value(pendingSync),
-      isDeleted: Value(isDeleted),
-      lastSync: lastSync == null && nullToAbsent
-          ? const Value.absent()
-          : Value(lastSync),
-      createdAt: Value(createdAt),
-      updatedAt: Value(updatedAt),
-    );
-  }
-
-  factory Cliente.fromJson(Map<String, dynamic> json,
-      {ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return Cliente(
-      id: serializer.fromJson<int>(json['id']),
-      odooId: serializer.fromJson<int?>(json['odooId']),
-      name: serializer.fromJson<String>(json['name']),
-      email: serializer.fromJson<String?>(json['email']),
-      phone: serializer.fromJson<String?>(json['phone']),
-      city: serializer.fromJson<String?>(json['city']),
-      pendingSync: serializer.fromJson<bool>(json['pendingSync']),
-      isDeleted: serializer.fromJson<bool>(json['isDeleted']),
-      lastSync: serializer.fromJson<DateTime?>(json['lastSync']),
-      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
-      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
-    );
-  }
-  @override
-  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return <String, dynamic>{
-      'id': serializer.toJson<int>(id),
-      'odooId': serializer.toJson<int?>(odooId),
-      'name': serializer.toJson<String>(name),
-      'email': serializer.toJson<String?>(email),
-      'phone': serializer.toJson<String?>(phone),
-      'city': serializer.toJson<String?>(city),
-      'pendingSync': serializer.toJson<bool>(pendingSync),
-      'isDeleted': serializer.toJson<bool>(isDeleted),
-      'lastSync': serializer.toJson<DateTime?>(lastSync),
-      'createdAt': serializer.toJson<DateTime>(createdAt),
-      'updatedAt': serializer.toJson<DateTime>(updatedAt),
-    };
-  }
-
-  Cliente copyWith(
-          {int? id,
-          Value<int?> odooId = const Value.absent(),
-          String? name,
-          Value<String?> email = const Value.absent(),
-          Value<String?> phone = const Value.absent(),
-          Value<String?> city = const Value.absent(),
-          bool? pendingSync,
-          bool? isDeleted,
-          Value<DateTime?> lastSync = const Value.absent(),
-          DateTime? createdAt,
-          DateTime? updatedAt}) =>
-      Cliente(
-        id: id ?? this.id,
-        odooId: odooId.present ? odooId.value : this.odooId,
-        name: name ?? this.name,
-        email: email.present ? email.value : this.email,
-        phone: phone.present ? phone.value : this.phone,
-        city: city.present ? city.value : this.city,
-        pendingSync: pendingSync ?? this.pendingSync,
-        isDeleted: isDeleted ?? this.isDeleted,
-        lastSync: lastSync.present ? lastSync.value : this.lastSync,
-        createdAt: createdAt ?? this.createdAt,
-        updatedAt: updatedAt ?? this.updatedAt,
-      );
-  Cliente copyWithCompanion(ClientesCompanion data) {
-    return Cliente(
-      id: data.id.present ? data.id.value : this.id,
-      odooId: data.odooId.present ? data.odooId.value : this.odooId,
-      name: data.name.present ? data.name.value : this.name,
-      email: data.email.present ? data.email.value : this.email,
-      phone: data.phone.present ? data.phone.value : this.phone,
-      city: data.city.present ? data.city.value : this.city,
-      pendingSync:
-          data.pendingSync.present ? data.pendingSync.value : this.pendingSync,
-      isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
-      lastSync: data.lastSync.present ? data.lastSync.value : this.lastSync,
-      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
-      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
-    );
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('Cliente(')
-          ..write('id: $id, ')
-          ..write('odooId: $odooId, ')
-          ..write('name: $name, ')
-          ..write('email: $email, ')
-          ..write('phone: $phone, ')
-          ..write('city: $city, ')
-          ..write('pendingSync: $pendingSync, ')
-          ..write('isDeleted: $isDeleted, ')
-          ..write('lastSync: $lastSync, ')
-          ..write('createdAt: $createdAt, ')
-          ..write('updatedAt: $updatedAt')
-          ..write(')'))
-        .toString();
-  }
-
-  @override
-  int get hashCode => Object.hash(id, odooId, name, email, phone, city,
-      pendingSync, isDeleted, lastSync, createdAt, updatedAt);
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      (other is Cliente &&
-          other.id == this.id &&
-          other.odooId == this.odooId &&
-          other.name == this.name &&
-          other.email == this.email &&
-          other.phone == this.phone &&
-          other.city == this.city &&
-          other.pendingSync == this.pendingSync &&
-          other.isDeleted == this.isDeleted &&
-          other.lastSync == this.lastSync &&
-          other.createdAt == this.createdAt &&
-          other.updatedAt == this.updatedAt);
-}
-
-class ClientesCompanion extends UpdateCompanion<Cliente> {
-  final Value<int> id;
-  final Value<int?> odooId;
-  final Value<String> name;
-  final Value<String?> email;
-  final Value<String?> phone;
-  final Value<String?> city;
-  final Value<bool> pendingSync;
-  final Value<bool> isDeleted;
-  final Value<DateTime?> lastSync;
-  final Value<DateTime> createdAt;
-  final Value<DateTime> updatedAt;
-  const ClientesCompanion({
-    this.id = const Value.absent(),
-    this.odooId = const Value.absent(),
-    this.name = const Value.absent(),
-    this.email = const Value.absent(),
-    this.phone = const Value.absent(),
-    this.city = const Value.absent(),
-    this.pendingSync = const Value.absent(),
-    this.isDeleted = const Value.absent(),
-    this.lastSync = const Value.absent(),
-    this.createdAt = const Value.absent(),
-    this.updatedAt = const Value.absent(),
-  });
-  ClientesCompanion.insert({
-    this.id = const Value.absent(),
-    this.odooId = const Value.absent(),
-    required String name,
-    this.email = const Value.absent(),
-    this.phone = const Value.absent(),
-    this.city = const Value.absent(),
-    this.pendingSync = const Value.absent(),
-    this.isDeleted = const Value.absent(),
-    this.lastSync = const Value.absent(),
-    this.createdAt = const Value.absent(),
-    this.updatedAt = const Value.absent(),
-  }) : name = Value(name);
-  static Insertable<Cliente> custom({
-    Expression<int>? id,
-    Expression<int>? odooId,
-    Expression<String>? name,
-    Expression<String>? email,
-    Expression<String>? phone,
-    Expression<String>? city,
-    Expression<bool>? pendingSync,
-    Expression<bool>? isDeleted,
-    Expression<DateTime>? lastSync,
-    Expression<DateTime>? createdAt,
-    Expression<DateTime>? updatedAt,
-  }) {
-    return RawValuesInsertable({
-      if (id != null) 'id': id,
-      if (odooId != null) 'odoo_id': odooId,
-      if (name != null) 'name': name,
-      if (email != null) 'email': email,
-      if (phone != null) 'phone': phone,
-      if (city != null) 'city': city,
-      if (pendingSync != null) 'pending_sync': pendingSync,
-      if (isDeleted != null) 'is_deleted': isDeleted,
-      if (lastSync != null) 'last_sync': lastSync,
-      if (createdAt != null) 'created_at': createdAt,
-      if (updatedAt != null) 'updated_at': updatedAt,
-    });
-  }
-
-  ClientesCompanion copyWith(
-      {Value<int>? id,
-      Value<int?>? odooId,
-      Value<String>? name,
-      Value<String?>? email,
-      Value<String?>? phone,
-      Value<String?>? city,
-      Value<bool>? pendingSync,
-      Value<bool>? isDeleted,
-      Value<DateTime?>? lastSync,
-      Value<DateTime>? createdAt,
-      Value<DateTime>? updatedAt}) {
-    return ClientesCompanion(
-      id: id ?? this.id,
-      odooId: odooId ?? this.odooId,
-      name: name ?? this.name,
-      email: email ?? this.email,
-      phone: phone ?? this.phone,
-      city: city ?? this.city,
-      pendingSync: pendingSync ?? this.pendingSync,
-      isDeleted: isDeleted ?? this.isDeleted,
-      lastSync: lastSync ?? this.lastSync,
-      createdAt: createdAt ?? this.createdAt,
-      updatedAt: updatedAt ?? this.updatedAt,
-    );
-  }
-
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    if (id.present) {
-      map['id'] = Variable<int>(id.value);
-    }
-    if (odooId.present) {
-      map['odoo_id'] = Variable<int>(odooId.value);
-    }
-    if (name.present) {
-      map['name'] = Variable<String>(name.value);
-    }
-    if (email.present) {
-      map['email'] = Variable<String>(email.value);
-    }
-    if (phone.present) {
-      map['phone'] = Variable<String>(phone.value);
-    }
-    if (city.present) {
-      map['city'] = Variable<String>(city.value);
-    }
-    if (pendingSync.present) {
-      map['pending_sync'] = Variable<bool>(pendingSync.value);
-    }
-    if (isDeleted.present) {
-      map['is_deleted'] = Variable<bool>(isDeleted.value);
-    }
-    if (lastSync.present) {
-      map['last_sync'] = Variable<DateTime>(lastSync.value);
-    }
-    if (createdAt.present) {
-      map['created_at'] = Variable<DateTime>(createdAt.value);
-    }
-    if (updatedAt.present) {
-      map['updated_at'] = Variable<DateTime>(updatedAt.value);
-    }
-    return map;
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('ClientesCompanion(')
-          ..write('id: $id, ')
-          ..write('odooId: $odooId, ')
-          ..write('name: $name, ')
-          ..write('email: $email, ')
-          ..write('phone: $phone, ')
-          ..write('city: $city, ')
-          ..write('pendingSync: $pendingSync, ')
-          ..write('isDeleted: $isDeleted, ')
-          ..write('lastSync: $lastSync, ')
-          ..write('createdAt: $createdAt, ')
-          ..write('updatedAt: $updatedAt')
-          ..write(')'))
-        .toString();
-  }
-}
-
-abstract class _$AppDatabase extends GeneratedDatabase {
-  _$AppDatabase(QueryExecutor e) : super(e);
-  $AppDatabaseManager get managers => $AppDatabaseManager(this);
-  late final $ClientesTable clientes = $ClientesTable(this);
-  late final ClientesDao clientesDao = ClientesDao(this as AppDatabase);
-  @override
-  Iterable<TableInfo<Table, Object?>> get allTables =>
-      allSchemaEntities.whereType<TableInfo<Table, Object?>>();
-  @override
-  List<DatabaseSchemaEntity> get allSchemaEntities => [clientes];
-}
-
-typedef $$ClientesTableCreateCompanionBuilder = ClientesCompanion Function({
-  Value<int> id,
-  Value<int?> odooId,
-  required String name,
-  Value<String?> email,
-  Value<String?> phone,
-  Value<String?> city,
-  Value<bool> pendingSync,
-  Value<bool> isDeleted,
-  Value<DateTime?> lastSync,
-  Value<DateTime> createdAt,
-  Value<DateTime> updatedAt,
-});
-typedef $$ClientesTableUpdateCompanionBuilder = ClientesCompanion Function({
-  Value<int> id,
-  Value<int?> odooId,
-  Value<String> name,
-  Value<String?> email,
-  Value<String?> phone,
-  Value<String?> city,
-  Value<bool> pendingSync,
-  Value<bool> isDeleted,
-  Value<DateTime?> lastSync,
-  Value<DateTime> createdAt,
-  Value<DateTime> updatedAt,
-});
-
-class $$ClientesTableFilterComposer
-    extends Composer<_$AppDatabase, $ClientesTable> {
-  $$ClientesTableFilterComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnFilters<int> get id => $composableBuilder(
-      column: $table.id, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<int> get odooId => $composableBuilder(
-      column: $table.odooId, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get name => $composableBuilder(
-      column: $table.name, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get email => $composableBuilder(
-      column: $table.email, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get phone => $composableBuilder(
-      column: $table.phone, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get city => $composableBuilder(
-      column: $table.city, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<bool> get pendingSync => $composableBuilder(
-      column: $table.pendingSync, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<bool> get isDeleted => $composableBuilder(
-      column: $table.isDeleted, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<DateTime> get lastSync => $composableBuilder(
-      column: $table.lastSync, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<DateTime> get createdAt => $composableBuilder(
-      column: $table.createdAt, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
-      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
-}
-
-class $$ClientesTableOrderingComposer
-    extends Composer<_$AppDatabase, $ClientesTable> {
-  $$ClientesTableOrderingComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnOrderings<int> get id => $composableBuilder(
-      column: $table.id, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<int> get odooId => $composableBuilder(
-      column: $table.odooId, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<String> get name => $composableBuilder(
-      column: $table.name, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<String> get email => $composableBuilder(
-      column: $table.email, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<String> get phone => $composableBuilder(
-      column: $table.phone, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<String> get city => $composableBuilder(
-      column: $table.city, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<bool> get pendingSync => $composableBuilder(
-      column: $table.pendingSync, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<bool> get isDeleted => $composableBuilder(
-      column: $table.isDeleted, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<DateTime> get lastSync => $composableBuilder(
-      column: $table.lastSync, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
-      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
-      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
-}
-
-class $$ClientesTableAnnotationComposer
-    extends Composer<_$AppDatabase, $ClientesTable> {
-  $$ClientesTableAnnotationComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  GeneratedColumn<int> get id =>
-      $composableBuilder(column: $table.id, builder: (column) => column);
-
-  GeneratedColumn<int> get odooId =>
-      $composableBuilder(column: $table.odooId, builder: (column) => column);
-
-  GeneratedColumn<String> get name =>
-      $composableBuilder(column: $table.name, builder: (column) => column);
-
-  GeneratedColumn<String> get email =>
-      $composableBuilder(column: $table.email, builder: (column) => column);
-
-  GeneratedColumn<String> get phone =>
-      $composableBuilder(column: $table.phone, builder: (column) => column);
-
-  GeneratedColumn<String> get city =>
-      $composableBuilder(column: $table.city, builder: (column) => column);
-
-  GeneratedColumn<bool> get pendingSync => $composableBuilder(
-      column: $table.pendingSync, builder: (column) => column);
-
-  GeneratedColumn<bool> get isDeleted =>
-      $composableBuilder(column: $table.isDeleted, builder: (column) => column);
-
-  GeneratedColumn<DateTime> get lastSync =>
-      $composableBuilder(column: $table.lastSync, builder: (column) => column);
-
-  GeneratedColumn<DateTime> get createdAt =>
-      $composableBuilder(column: $table.createdAt, builder: (column) => column);
-
-  GeneratedColumn<DateTime> get updatedAt =>
-      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
-}
-
-class $$ClientesTableTableManager extends RootTableManager<
-    _$AppDatabase,
-    $ClientesTable,
-    Cliente,
-    $$ClientesTableFilterComposer,
-    $$ClientesTableOrderingComposer,
-    $$ClientesTableAnnotationComposer,
-    $$ClientesTableCreateCompanionBuilder,
-    $$ClientesTableUpdateCompanionBuilder,
-    (Cliente, BaseReferences<_$AppDatabase, $ClientesTable, Cliente>),
-    Cliente,
-    PrefetchHooks Function()> {
-  $$ClientesTableTableManager(_$AppDatabase db, $ClientesTable table)
-      : super(TableManagerState(
-          db: db,
-          table: table,
-          createFilteringComposer: () =>
-              $$ClientesTableFilterComposer($db: db, $table: table),
-          createOrderingComposer: () =>
-              $$ClientesTableOrderingComposer($db: db, $table: table),
-          createComputedFieldComposer: () =>
-              $$ClientesTableAnnotationComposer($db: db, $table: table),
-          updateCompanionCallback: ({
-            Value<int> id = const Value.absent(),
-            Value<int?> odooId = const Value.absent(),
-            Value<String> name = const Value.absent(),
-            Value<String?> email = const Value.absent(),
-            Value<String?> phone = const Value.absent(),
-            Value<String?> city = const Value.absent(),
-            Value<bool> pendingSync = const Value.absent(),
-            Value<bool> isDeleted = const Value.absent(),
-            Value<DateTime?> lastSync = const Value.absent(),
-            Value<DateTime> createdAt = const Value.absent(),
-            Value<DateTime> updatedAt = const Value.absent(),
-          }) =>
-              ClientesCompanion(
-            id: id,
-            odooId: odooId,
-            name: name,
-            email: email,
-            phone: phone,
-            city: city,
-            pendingSync: pendingSync,
-            isDeleted: isDeleted,
-            lastSync: lastSync,
-            createdAt: createdAt,
-            updatedAt: updatedAt,
-          ),
-          createCompanionCallback: ({
-            Value<int> id = const Value.absent(),
-            Value<int?> odooId = const Value.absent(),
-            required String name,
-            Value<String?> email = const Value.absent(),
-            Value<String?> phone = const Value.absent(),
-            Value<String?> city = const Value.absent(),
-            Value<bool> pendingSync = const Value.absent(),
-            Value<bool> isDeleted = const Value.absent(),
-            Value<DateTime?> lastSync = const Value.absent(),
-            Value<DateTime> createdAt = const Value.absent(),
-            Value<DateTime> updatedAt = const Value.absent(),
-          }) =>
-              ClientesCompanion.insert(
-            id: id,
-            odooId: odooId,
-            name: name,
-            email: email,
-            phone: phone,
-            city: city,
-            pendingSync: pendingSync,
-            isDeleted: isDeleted,
-            lastSync: lastSync,
-            createdAt: createdAt,
-            updatedAt: updatedAt,
-          ),
-          withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
-              .toList(),
-          prefetchHooksCallback: null,
-        ));
-}
-
-typedef $$ClientesTableProcessedTableManager = ProcessedTableManager<
-    _$AppDatabase,
-    $ClientesTable,
-    Cliente,
-    $$ClientesTableFilterComposer,
-    $$ClientesTableOrderingComposer,
-    $$ClientesTableAnnotationComposer,
-    $$ClientesTableCreateCompanionBuilder,
-    $$ClientesTableUpdateCompanionBuilder,
-    (Cliente, BaseReferences<_$AppDatabase, $ClientesTable, Cliente>),
-    Cliente,
-    PrefetchHooks Function()>;
-
-class $AppDatabaseManager {
-  final _$AppDatabase _db;
-  $AppDatabaseManager(this._db);
-  $$ClientesTableTableManager get clientes =>
-      $$ClientesTableTableManager(_db, _db.clientes);
-}
-
---------------------------------
 ### FILE: lib/data/local/clientes_table.dart
---------------------------------
+```dart
 import 'package:drift/drift.dart';
 
+@DataClassName('Cliente')
 class Clientes extends Table {
   IntColumn get id => integer().autoIncrement()();
-  IntColumn get odooId => integer().nullable().unique()(); // ID remoto
+  IntColumn get odooId => integer().unique().nullable()();
   TextColumn get name => text()();
   TextColumn get email => text().nullable()();
   TextColumn get phone => text().nullable()();
   TextColumn get city => text().nullable()();
   BoolColumn get pendingSync => boolean().withDefault(const Constant(false))();
   BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
-  DateTimeColumn get lastSync => dateTime().nullable()();
-  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
-  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
 }
---------------------------------
+```
+---
+
 ### FILE: lib/data/local/connection/mobile.dart
---------------------------------
+```dart
 import 'dart:io';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
@@ -1104,10 +307,11 @@ LazyDatabase openConnection() {
     final file = File(p.join(dbFolder.path, 'clientes.sqlite'));
     return NativeDatabase(file);
   });
-}
---------------------------------
+}```
+---
+
 ### FILE: lib/data/local/dao/clientes_dao.dart
---------------------------------
+```dart
 import 'package:drift/drift.dart';
 import 'package:myapp/data/local/app_database.dart';
 import 'package:myapp/data/local/clientes_table.dart';
@@ -1118,12 +322,10 @@ part 'clientes_dao.g.dart';
 class ClientesDao extends DatabaseAccessor<AppDatabase> with _$ClientesDaoMixin {
   ClientesDao(super.db);
 
-  Stream<List<Cliente>> watchAllClientes() => select(clientes).watch();
+  Stream<List<Cliente>> watchAllClientes() => (select(clientes)..where((c) => c.isDeleted.equals(false))).watch();
 
   Future<void> insertCliente(ClientesCompanion cliente) => into(clientes).insert(cliente);
-  
-  // Método para insertar/actualizar una lista de clientes.
-  // Usado por el Repository para la sincronización.
+
   Future<void> insertOrUpdateAll(List<ClientesCompanion> clientesList) {
     return batch((batch) {
       batch.insertAll(
@@ -1137,31 +339,16 @@ class ClientesDao extends DatabaseAccessor<AppDatabase> with _$ClientesDaoMixin 
   Future<void> updateCliente(Cliente cliente) => update(clientes).replace(cliente);
   
   Future<void> deleteCliente(Cliente cliente) => delete(clientes).delete(cliente);
+
+  Future<List<Cliente>> getClientesPendientes() {
+    return (select(clientes)..where((c) => c.pendingSync.equals(true))).get();
+  }
 }
+```
+---
 
---------------------------------
-### FILE: lib/data/local/dao/clientes_dao.g.dart
---------------------------------
-// GENERATED CODE - DO NOT MODIFY BY HAND
-
-part of 'clientes_dao.dart';
-
-// ignore_for_file: type=lint
-mixin _$ClientesDaoMixin on DatabaseAccessor<AppDatabase> {
-  $ClientesTable get clientes => attachedDatabase.clientes;
-  ClientesDaoManager get managers => ClientesDaoManager(this);
-}
-
-class ClientesDaoManager {
-  final _$ClientesDaoMixin _db;
-  ClientesDaoManager(this._db);
-  $$ClientesTableTableManager get clientes =>
-      $$ClientesTableTableManager(_db.attachedDatabase, _db.clientes);
-}
-
---------------------------------
 ### FILE: lib/data/remote/odoo_service.dart
---------------------------------
+```dart
 import 'package:http/http.dart' as http;
 import 'dart:developer' as developer;
 import 'dart:convert';
@@ -1389,10 +576,11 @@ class OdooService {
     _client.close();
   }
 }
+```
+---
 
---------------------------------
 ### FILE: lib/main.dart
---------------------------------
+```dart
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -1491,16 +679,17 @@ class AuthWrapper extends StatelessWidget {
     );
   }
 }
+```
+---
 
---------------------------------
 ### FILE: lib/pages/cliente_edit_page.dart
---------------------------------
-
+```dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:drift/drift.dart' hide Column;
 import 'package:myapp/data/local/app_database.dart';
 import 'package:myapp/providers/clientes_provider.dart';
+import 'package:myapp/theme/app_theme.dart';
 
 class ClienteEditPage extends StatefulWidget {
   final Cliente? cliente;
@@ -1519,6 +708,7 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
   late final TextEditingController _cityController;
 
   bool get _isEditing => widget.cliente != null;
+  bool _isSaving = false;
 
   @override
   void initState() {
@@ -1539,14 +729,15 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
   }
 
   Future<void> _saveCliente() async {
-    if (!_formKey.currentState!.validate()) {
+    if (!_formKey.currentState!.validate() || _isSaving) {
       return;
     }
+
+    setState(() => _isSaving = true);
 
     final provider = context.read<ClientesProvider>();
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
-    final theme = Theme.of(context);
 
     try {
       if (_isEditing) {
@@ -1565,76 +756,154 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
           _cityController.text.trim(),
         );
       }
-      
+
       scaffoldMessenger.showSnackBar(
         SnackBar(
           content: Text(_isEditing ? 'Cliente actualizado' : 'Cliente creado'),
-          backgroundColor: theme.colorScheme.primary,
+          backgroundColor: AppColors.primary,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       );
       navigator.pop();
-
     } catch (e) {
       scaffoldMessenger.showSnackBar(
-        SnackBar(content: Text('Error al guardar: $e')),
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
       );
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  Future<void> _deleteCliente() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surfaceDark,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: const Text(
+          'Eliminar cliente',
+          style: TextStyle(color: AppColors.textPrimary),
+        ),
+        content: const Text(
+          '¿Estás seguro de que quieres eliminar este cliente?',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text(
+              'Cancelar',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text(
+              'Eliminar',
+              style: TextStyle(color: AppColors.error),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true && mounted) {
+      try {
+        await context.read<ClientesProvider>().deleteCliente(widget.cliente!);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Cliente eliminado'),
+              backgroundColor: AppColors.primary,
+            ),
+          );
+          Navigator.of(context).pop();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: ${e.toString()}'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
     return Scaffold(
+      backgroundColor: AppColors.backgroundDark,
       appBar: AppBar(
-        title: Text(_isEditing ? 'Editar cliente' : 'Nuevo cliente'),
+        backgroundColor: AppColors.surfaceDark,
         elevation: 0,
-        centerTitle: false,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded),
+          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
           onPressed: () => Navigator.of(context).pop(),
         ),
+        title: Text(
+          _isEditing ? 'Editar cliente' : 'Nuevo cliente',
+          style: context.textTheme.titleLarge,
+        ),
+        actions: [
+          if (_isEditing)
+            IconButton(
+              icon: const Icon(Icons.delete, color: AppColors.error),
+              onPressed: _deleteCliente,
+            ),
+        ],
       ),
       body: Form(
         key: _formKey,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20.0),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 10),
-              _buildProfileHeader(colorScheme, theme.textTheme),
-              const SizedBox(height: 30),
-              _buildTextField(
-                controller: _nameController,
-                labelText: 'Nombre completo',
-                hintText: 'Juan García López',
-                icon: Icons.person_outline_rounded,
-                validator: (value) => (value == null || value.isEmpty) ? 'El nombre es obligatorio' : null,
-              ),
-              const SizedBox(height: 25),
-              _buildTextField(
-                controller: _phoneController,
-                labelText: 'Teléfono',
-                hintText: '+34 623 377 364',
-                icon: Icons.smartphone_rounded,
-                keyboardType: TextInputType.phone,
-              ),
-              const SizedBox(height: 25),
-              _buildTextField(
-                controller: _emailController,
-                labelText: 'Correo electrónico',
-                hintText: 'juan.garcia@email.com',
-                icon: Icons.email_outlined,
-                keyboardType: TextInputType.emailAddress,
-              ),
-              const SizedBox(height: 25),
-              _buildTextField(
-                controller: _cityController,
-                labelText: 'Ciudad',
-                hintText: 'Madrid, España',
-                icon: Icons.location_on_outlined,
+              const SizedBox(height: 24),
+              _buildProfileHeader(),
+              const SizedBox(height: 32),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: Column(
+                  children: [
+                    _buildTextField(
+                      controller: _nameController,
+                      labelText: 'Nombre completo',
+                      icon: Icons.person,
+                      validator: (value) =>
+                          (value == null || value.isEmpty) ? 'Requerido' : null,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      controller: _phoneController,
+                      labelText: 'Teléfono',
+                      icon: Icons.phone,
+                      keyboardType: TextInputType.phone,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      controller: _emailController,
+                      labelText: 'Correo electrónico',
+                      icon: Icons.email,
+                      keyboardType: TextInputType.emailAddress,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      controller: _cityController,
+                      labelText: 'Ciudad',
+                      icon: Icons.location_on,
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 100),
             ],
@@ -1642,82 +911,100 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _saveCliente,
+        onPressed: _isSaving ? null : _saveCliente,
+        backgroundColor: _isSaving
+            ? AppColors.primary.withAlpha(128)
+            : AppColors.primary,
         elevation: 4,
-        child: const Icon(Icons.check_rounded, size: 32),
+        child: _isSaving
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: Colors.white,
+                ),
+              )
+            : const Icon(Icons.check, size: 28, color: Colors.white),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 
-  Widget _buildProfileHeader(ColorScheme colorScheme, TextTheme textTheme) {
-    return Center(
-      child: Column(
-        children: [
-          CircleAvatar(
-            radius: 45,
-            backgroundColor: colorScheme.surface.withAlpha(128),
-            child: Icon(
-              Icons.person_outline_rounded,
-              size: 45,
-              color: colorScheme.onSurface.withAlpha(128),
+  Widget _buildProfileHeader() {
+    final avatarColor = _isEditing 
+        ? AppTheme.getAvatarColor(widget.cliente!.name)
+        : AppColors.primary;
+    
+    return Column(
+      children: [
+        Container(
+          width: 100,
+          height: 100,
+          decoration: BoxDecoration(
+            color: avatarColor,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: AppColors.primary,
+              width: 2,
             ),
           ),
-          const SizedBox(height: 8),
-          TextButton(
-            onPressed: () {},
-            child: Text(
-              'Cambiar foto',
-              style: textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+          child: Center(
+            child: _isEditing && widget.cliente!.name.isNotEmpty
+                ? Text(
+                    widget.cliente!.name[0].toUpperCase(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 40,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  )
+                : const Icon(
+                    Icons.person,
+                    size: 50,
+                    color: Colors.white,
+                  ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextButton(
+          onPressed: () {
+            // Funcionalidad para cambiar foto (futura implementación)
+          },
+          child: Text(
+            'Cambiar foto',
+            style: TextStyle(
+              color: AppColors.primary,
+              fontSize: 14,
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
   Widget _buildTextField({
     required TextEditingController controller,
     required String labelText,
-    required String hintText,
     required IconData icon,
     String? Function(String?)? validator,
     TextInputType? keyboardType,
   }) {
-    final theme = Theme.of(context);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4.0, bottom: 6.0),
-          child: Text(
-            labelText,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-        TextFormField(
-          controller: controller,
-          validator: validator,
-          keyboardType: keyboardType,
-          style: theme.textTheme.bodyLarge,
-          decoration: InputDecoration(
-            hintText: hintText,
-            prefixIcon: Icon(icon, size: 22),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          ),
-        ),
-      ],
+    return TextFormField(
+      controller: controller,
+      validator: validator,
+      keyboardType: keyboardType,
+      style: const TextStyle(color: AppColors.textPrimary),
+      decoration: InputDecoration(
+        labelText: labelText,
+        prefixIcon: Icon(icon, size: 20),
+      ),
     );
   }
-}
+}```
+---
 
---------------------------------
 ### FILE: lib/pages/clientes_page.dart
---------------------------------
-
+```dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -1725,6 +1012,7 @@ import 'package:myapp/data/local/app_database.dart';
 import 'package:myapp/pages/cliente_edit_page.dart';
 import 'package:myapp/providers/clientes_provider.dart';
 import 'package:myapp/providers/navigation_provider.dart';
+import 'package:myapp/theme/app_theme.dart';
 
 class ClientesPage extends StatelessWidget {
   const ClientesPage({super.key});
@@ -1758,31 +1046,41 @@ class _ClientesViewState extends State<_ClientesView> {
     _messageTimer?.cancel();
     super.dispose();
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return Consumer<ClientesProvider>(
       builder: (context, provider, child) {
         final filteredClientes = _filterClientes(
-            provider.clientes, 
-            context.watch<NavigationProvider>().searchQuery
+          provider.clientes,
+          context.watch<NavigationProvider>().searchQuery,
         );
 
-        return Column(
-          children: [
-            _buildSyncStatus(provider),
-            
-            Expanded(
-              child: provider.isLoading && provider.clientes.isEmpty
-                  ? const Center(child: CircularProgressIndicator())
-                  : RefreshIndicator(
-                      onRefresh: () => provider.syncClientes(),
-                      child: filteredClientes.isEmpty
-                          ? _buildEmptyState(context.watch<NavigationProvider>().searchQuery)
-                          : _buildClientesList(context, filteredClientes),
-                    ),
-            ),
-          ],
+        return Container(
+          color: AppColors.backgroundDark,
+          child: Column(
+            children: [
+              _buildSyncStatus(provider),
+              Expanded(
+                child: provider.isLoading && provider.clientes.isEmpty
+                    ? const Center(
+                        child: CircularProgressIndicator(
+                          color: AppColors.primary,
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: () => provider.syncClientes(),
+                        color: AppColors.primary,
+                        backgroundColor: AppColors.surfaceDark,
+                        child: filteredClientes.isEmpty
+                            ? _buildEmptyState(
+                                context.watch<NavigationProvider>().searchQuery,
+                              )
+                            : _buildClientesList(context, filteredClientes),
+                      ),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -1792,17 +1090,14 @@ class _ClientesViewState extends State<_ClientesView> {
     if (searchQuery.isEmpty) return clientes;
     final query = searchQuery.toLowerCase();
     return clientes.where((c) {
-        final name = c.name.toLowerCase();
-        final email = c.email?.toLowerCase() ?? '';
-        final phone = c.phone?.toLowerCase() ?? '';
-        return name.contains(query) || email.contains(query) || phone.contains(query);
+      final name = c.name.toLowerCase();
+      final email = c.email?.toLowerCase() ?? '';
+      final phone = c.phone?.toLowerCase() ?? '';
+      return name.contains(query) || email.contains(query) || phone.contains(query);
     }).toList();
   }
 
   Widget _buildSyncStatus(ClientesProvider provider) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
     if (provider.syncMessage == null) {
       return const SizedBox.shrink();
     }
@@ -1815,127 +1110,168 @@ class _ClientesViewState extends State<_ClientesView> {
       _messageTimer?.cancel();
       _messageTimer = Timer(const Duration(seconds: 4), () {
         if (mounted) {
-          // Implementación futura: El provider debería limpiar su propio mensaje.
+          // El mensaje se limpiará automáticamente
         }
       });
     }
-    
-    return Material(
-      elevation: 2,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        decoration: BoxDecoration(
-            gradient: isError
-                ? null
-                : LinearGradient(
-                    colors: [colorScheme.primary, colorScheme.secondary],
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                  ),
-            color: isError ? colorScheme.errorContainer : null,
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Column(
+
+    return Container(
+      color: isError ? AppColors.error : AppColors.primary,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Column(
+        children: [
+          Row(
             children: [
-              Row(
-                children: [
-                  if (isLoading) SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.onPrimary)),
-                  if (!isLoading) Icon(isError ? Icons.error_outline : Icons.check_circle_outline, color: isError ? colorScheme.error : colorScheme.onPrimary, size: 16),
-                  const SizedBox(width: 12),
-                  Expanded(child: Text(message, style: theme.textTheme.bodySmall?.copyWith(color: isError ? colorScheme.onErrorContainer : colorScheme.onPrimary))),
-                ],
+              if (isLoading)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                ),
+              if (!isLoading)
+                Icon(
+                  isError ? Icons.error_outline : Icons.check_circle_outline,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  message,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                  ),
+                ),
               ),
-              if (isLoading) ...[
-                const SizedBox(height: 8),
-                const LinearProgressIndicator(),
+            ],
+          ),
+          if (isLoading) ...[
+            const SizedBox(height: 8),
+            const LinearProgressIndicator(
+              backgroundColor: Colors.white24,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(String searchQuery) {
+    return ListView(
+      children: [
+        SizedBox(height: MediaQuery.of(context).size.height * 0.2),
+        Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                searchQuery.isEmpty ? Icons.people_outline : Icons.search_off,
+                size: 80,
+                color: AppColors.textSecondary,
+              ),
+              const SizedBox(height: 24),
+              Text(
+                searchQuery.isEmpty
+                    ? 'No hay clientes'
+                    : 'No se encontraron resultados',
+                style: context.textTheme.headlineSmall?.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              if (searchQuery.isEmpty) ...[
+                const SizedBox(height: 32),
+                ElevatedButton.icon(
+                  onPressed: () => context.read<ClientesProvider>().syncClientes(),
+                  icon: const Icon(Icons.sync),
+                  label: const Text('Sincronizar ahora'),
+                ),
               ],
             ],
           ),
         ),
-      ),
+      ],
     );
   }
-  
-  Widget _buildEmptyState(String searchQuery) => ListView(
-    children: [ 
-      Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const SizedBox(height: 50),
-            Icon(searchQuery.isEmpty ? Icons.people_outline : Icons.search_off, size: 64, color: Theme.of(context).colorScheme.onSurface.withAlpha(128)),
-            const SizedBox(height: 16),
-            Text(searchQuery.isEmpty ? 'No hay clientes' : 'No se encontraron resultados', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Theme.of(context).colorScheme.onSurface.withAlpha(179))),
-            const SizedBox(height: 24),
-            if (searchQuery.isEmpty)
-              ElevatedButton.icon(
-                onPressed: () => context.read<ClientesProvider>().syncClientes(),
-                icon: const Icon(Icons.sync),
-                label: const Text('Sincronizar ahora'),
-              )
-          ],
-        ),
-      )
-    ]
-  );
 
   ListView _buildClientesList(BuildContext context, List<Cliente> clientes) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.only(top: 4),
       itemCount: clientes.length,
       itemBuilder: (context, i) {
         final cliente = clientes[i];
-        return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          elevation: 2,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: InkWell(
-            onTap: () => _navigateToCliente(context, cliente: cliente),
-            borderRadius: BorderRadius.circular(12),
-            child: Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 28,
-                    backgroundColor: colorScheme.primaryContainer,
-                    child: Text(
-                      cliente.name.isNotEmpty ? cliente.name[0].toUpperCase() : '?',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: colorScheme.onPrimaryContainer,
+        return Container(
+          decoration: const BoxDecoration(
+            border: Border(
+              bottom: BorderSide(
+                color: AppColors.divider,
+                width: 1,
+              ),
+            ),
+          ),
+          child: Material(
+            color: AppColors.backgroundDark,
+            child: InkWell(
+              onTap: () => _navigateToCliente(context, cliente: cliente),
+              splashColor: AppColors.surfaceDark,
+              highlightColor: AppColors.surfaceDark,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    // Avatar con iniciales
+                    Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: AppTheme.getAvatarColor(cliente.name),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Text(
+                          cliente.name.isNotEmpty
+                              ? cliente.name[0].toUpperCase()
+                              : '?',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          cliente.name,
-                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 4),
-                        if (cliente.phone?.isNotEmpty == true)
+                    const SizedBox(width: 16),
+                    // Información del cliente
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                           Text(
-                            cliente.phone!,
-                            style: theme.textTheme.bodyMedium?.copyWith(color: colorScheme.onSurfaceVariant),
+                            cliente.name,
+                            style: context.textTheme.titleMedium,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                      ],
+                          const SizedBox(height: 4),
+                          Text(
+                            cliente.phone?.isNotEmpty == true
+                                ? cliente.phone!
+                                : cliente.email ?? 'Sin información',
+                            style: context.textTheme.bodyMedium?.copyWith(
+                              color: AppColors.textSecondary,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(Icons.chevron_right_rounded, color: colorScheme.outline),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -1943,15 +1279,15 @@ class _ClientesViewState extends State<_ClientesView> {
       },
     );
   }
-}
+}```
+---
 
---------------------------------
 ### FILE: lib/pages/login_page.dart
---------------------------------
-
+```dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../theme/app_theme.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -1970,40 +1306,6 @@ class _LoginPageState extends State<LoginPage> {
   bool _isLoading = false;
   bool _obscureText = true;
 
-  Future<void> _login() async {
-    if (!_formKey.currentState!.validate() || _isLoading) return;
-
-    setState(() => _isLoading = true);
-
-    final authProvider = context.read<AuthProvider>();
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
-    final theme = Theme.of(context);
-
-    try {
-      final success = await authProvider.login(
-        _urlController.text.trim(),
-        _dbController.text.trim(),
-        _emailController.text.trim(),
-        _passwordController.text,
-      );
-
-      if (!success) {
-        throw 'Credenciales incorrectas o error del servidor.';
-      }
-    } catch (e) {
-      scaffoldMessenger.showSnackBar(
-        SnackBar(
-          content: Text('Error al iniciar sesión: ${e.toString()}'),
-          backgroundColor: theme.colorScheme.error,
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-
   @override
   void dispose() {
     _urlController.dispose();
@@ -2013,172 +1315,224 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
+  Future<void> _login() async {
+    if (!_formKey.currentState!.validate() || _isLoading) return;
+
+    setState(() => _isLoading = true);
+
+    final authProvider = context.read<AuthProvider>();
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    try {
+      final success = await authProvider.login(
+        _urlController.text.trim(),
+        _dbController.text.trim(),
+        _emailController.text.trim(),
+        _passwordController.text,
+      );
+
+      if (!success && mounted) {
+        throw Exception('Credenciales incorrectas');
+      }
+    } catch (e) {
+      if (mounted) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceAll('Exception: ', '')),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
     return Scaffold(
-      backgroundColor: colorScheme.surface,
-      body: GestureDetector(
-        onTap: () => FocusScope.of(context).unfocus(),
-        child: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              return SingleChildScrollView(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                  child: IntrinsicHeight(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                      child: Column(
-                        children: [
-                          const Spacer(flex: 2),
-                          _buildHeader(colorScheme, theme.textTheme),
-                          const SizedBox(height: 30),
-                          Form(
-                            key: _formKey,
-                            child: Column(
-                              children: [
-                                _buildCustomTextField(controller: _urlController, labelText: 'URL DEL SERVIDOR', icon: Icons.link_rounded, validator: (v) => v!.isEmpty ? 'La URL no puede estar vacía' : null, colorScheme: colorScheme, textTheme: theme.textTheme, keyboardType: TextInputType.url),
-                                const SizedBox(height: 20),
-                                _buildCustomTextField(controller: _dbController, labelText: 'BASE DE DATOS', icon: Icons.storage_rounded, validator: (v) => v!.isEmpty ? 'La base de datos no puede estar vacía' : null, colorScheme: colorScheme, textTheme: theme.textTheme),
-                                const SizedBox(height: 20),
-                                _buildCustomTextField(controller: _emailController, labelText: 'CORREO ELECTRÓNICO', icon: Icons.email_outlined, validator: (v) => v!.isEmpty || !RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(v) ? 'Formato de correo no válido' : null, colorScheme: colorScheme, textTheme: theme.textTheme, keyboardType: TextInputType.emailAddress),
-                                const SizedBox(height: 20),
-                                _buildCustomTextField(controller: _passwordController, labelText: 'CONTRASEÑA', icon: Icons.lock_outline_rounded, isPassword: true, validator: (v) => v!.isEmpty ? 'La contraseña no puede estar vacía' : null, colorScheme: colorScheme, textTheme: theme.textTheme),
-                              ],
+      backgroundColor: AppColors.backgroundDark,
+      body: SafeArea(
+        child: GestureDetector(
+          onTap: () => FocusScope.of(context).unfocus(),
+          child: SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: MediaQuery.of(context).size.height - 
+                           MediaQuery.of(context).padding.top,
+              ),
+              child: IntrinsicHeight(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 60),
+                      _buildHeader(),
+                      const SizedBox(height: 50),
+                      Form(
+                        key: _formKey,
+                        child: Column(
+                          children: [
+                            _buildTextField(
+                              controller: _urlController,
+                              labelText: 'URL del servidor',
+                              icon: Icons.link,
+                              keyboardType: TextInputType.url,
+                              validator: (v) => v!.isEmpty ? 'Requerido' : null,
                             ),
-                          ),
-                          const Spacer(flex: 3),
-                          _buildConnectButton(colorScheme, theme.textTheme),
-                          const SizedBox(height: 12),
-                          _buildForgotPasswordLink(theme.textTheme, colorScheme),
-                          const Spacer(flex: 1),
-                        ],
+                            const SizedBox(height: 16),
+                            _buildTextField(
+                              controller: _dbController,
+                              labelText: 'Base de datos',
+                              icon: Icons.storage,
+                              validator: (v) => v!.isEmpty ? 'Requerido' : null,
+                            ),
+                            const SizedBox(height: 16),
+                            _buildTextField(
+                              controller: _emailController,
+                              labelText: 'Correo electrónico',
+                              icon: Icons.email,
+                              keyboardType: TextInputType.emailAddress,
+                              validator: (v) => v!.isEmpty ? 'Requerido' : null,
+                            ),
+                            const SizedBox(height: 16),
+                            _buildTextField(
+                              controller: _passwordController,
+                              labelText: 'Contraseña',
+                              icon: Icons.lock,
+                              isPassword: true,
+                              validator: (v) => v!.isEmpty ? 'Requerido' : null,
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
+                      const Spacer(),
+                      _buildLoginButton(),
+                      const SizedBox(height: 16),
+                      TextButton(
+                        onPressed: () {},
+                        child: Text(
+                          '¿Olvidaste tu contraseña?',
+                          style: TextStyle(color: AppColors.primary),
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                    ],
                   ),
                 ),
-              );
-            },
+              ),
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildHeader(ColorScheme colorScheme, TextTheme textTheme) {
+  Widget _buildHeader() {
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.all(4),
+          padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
+            color: AppColors.primary,
             shape: BoxShape.circle,
-            color: colorScheme.surface.withAlpha(128),
-            boxShadow: [BoxShadow(color: colorScheme.primary.withAlpha(77), blurRadius: 10, spreadRadius: 2)],
-            border: Border.all(color: colorScheme.onSurface.withAlpha(26), width: 2),
-          ),
-          child: Icon(Icons.pets, color: colorScheme.primary, size: 50),
-        ),
-        const SizedBox(height: 20),
-        Column(
-          children: [
-            Text('Tumburú', style: textTheme.displaySmall?.copyWith(fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-            const SizedBox(height: 4),
-            Container(
-              width: 50,
-              height: 3,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(2),
-                gradient: LinearGradient(colors: [colorScheme.primary, colorScheme.secondary]),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withAlpha(77),
+                blurRadius: 20,
+                spreadRadius: 5,
               ),
-            )
-          ],
+            ],
+          ),
+          child: const Icon(
+            Icons.pets,
+            size: 60,
+            color: Colors.white,
+          ),
         ),
-        const SizedBox(height: 12),
-        Text('Conecta con tu cuenta para continuar', style: textTheme.titleMedium?.copyWith(color: colorScheme.onSurface.withAlpha(178))),
+        const SizedBox(height: 24),
+        Text(
+          'Tumburú',
+          style: context.textTheme.displayLarge?.copyWith(
+            fontSize: 32,
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Conecta con tu cuenta',
+          style: context.textTheme.bodyLarge?.copyWith(
+            color: AppColors.textSecondary,
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildCustomTextField({
+  Widget _buildTextField({
     required TextEditingController controller,
     required String labelText,
     required IconData icon,
-    required ColorScheme colorScheme,
-    required TextTheme textTheme,
     bool isPassword = false,
     TextInputType? keyboardType,
     FormFieldValidator<String>? validator,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(labelText, style: textTheme.labelSmall?.copyWith(color: colorScheme.onSurface.withAlpha(178), fontWeight: FontWeight.w600)),
-        const SizedBox(height: 8),
-        TextFormField(
-          controller: controller,
-          obscureText: isPassword ? _obscureText : false,
-          keyboardType: keyboardType,
-          validator: validator,
-          style: TextStyle(color: colorScheme.onSurface),
-          decoration: InputDecoration(
-            prefixIcon: Icon(icon, size: 20),
-            suffixIcon: isPassword
-                ? IconButton(
-                    icon: Icon(_obscureText ? Icons.visibility_off_outlined : Icons.visibility_outlined),
-                    onPressed: () => setState(() => _obscureText = !_obscureText),
-                  )
-                : null,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-            contentPadding: const EdgeInsets.symmetric(vertical: 16),
-          ),
-          onFieldSubmitted: (_) => _login(),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildConnectButton(ColorScheme colorScheme, TextTheme textTheme) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: _isLoading ? null : _login,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            gradient: LinearGradient(colors: [colorScheme.primary, colorScheme.secondary], begin: Alignment.centerLeft, end: Alignment.centerRight),
-            boxShadow: [BoxShadow(color: colorScheme.primary.withAlpha(102), blurRadius: 10, offset: const Offset(0, 5))],
-          ),
-          child: Center(
-            child: _isLoading
-                ? SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 3, color: colorScheme.onPrimary))
-                : Text('CONECTAR', style: textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold, letterSpacing: 1.0)),
-          ),
-        ),
+    return TextFormField(
+      controller: controller,
+      obscureText: isPassword ? _obscureText : false,
+      keyboardType: keyboardType,
+      validator: validator,
+      style: const TextStyle(color: AppColors.textPrimary),
+      onFieldSubmitted: (_) => _login(),
+      decoration: InputDecoration(
+        labelText: labelText,
+        prefixIcon: Icon(icon, size: 20),
+        suffixIcon: isPassword
+            ? IconButton(
+                icon: Icon(
+                  _obscureText ? Icons.visibility_off : Icons.visibility,
+                  size: 20,
+                ),
+                onPressed: () => setState(() => _obscureText = !_obscureText),
+              )
+            : null,
       ),
     );
   }
 
-  Widget _buildForgotPasswordLink(TextTheme textTheme, ColorScheme colorScheme) {
-    return TextButton(
-      onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Función no implementada todavía.'))),
-      child: Text('¿Olvidaste tu contraseña?', style: textTheme.bodyMedium),
+  Widget _buildLoginButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 50,
+      child: ElevatedButton(
+        onPressed: _isLoading ? null : _login,
+        child: _isLoading
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: Colors.white,
+                ),
+              )
+            : const Text('CONECTAR'),
+      ),
     );
   }
-}
+}```
+---
 
---------------------------------
 ### FILE: lib/pages/profile_page.dart
---------------------------------
-
+```dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/clientes_provider.dart';
+import '../theme/app_theme.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -2191,81 +1545,236 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
-    final theme = Theme.of(context);
 
-    return ListView(
-      padding: const EdgeInsets.all(16.0),
-      children: <Widget>[
-        Card(
-          elevation: 4,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    return Container(
+      color: AppColors.backgroundDark,
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: <Widget>[
+          _buildProfileHeader(authProvider),
+          const SizedBox(height: 16),
+          _buildSectionTitle('Información de la cuenta'),
+          _buildInfoCard([
+            _buildInfoTile(
+              icon: Icons.person,
+              title: 'Nombre',
+              subtitle: authProvider.userName ?? 'No disponible',
+            ),
+            const Divider(color: AppColors.divider, height: 1),
+            _buildInfoTile(
+              icon: Icons.email,
+              title: 'Usuario',
+              subtitle: authProvider.userLogin ?? 'No disponible',
+            ),
+          ]),
+          const SizedBox(height: 16),
+          _buildSectionTitle('Conexión'),
+          _buildInfoCard([
+            _buildInfoTile(
+              icon: Icons.cloud,
+              title: 'Servidor',
+              subtitle: authProvider.serverUrl ?? 'No disponible',
+            ),
+            const Divider(color: AppColors.divider, height: 1),
+            _buildInfoTile(
+              icon: Icons.storage,
+              title: 'Base de datos',
+              subtitle: authProvider.dbName ?? 'No disponible',
+            ),
+          ]),
+          const SizedBox(height: 16),
+          _buildSectionTitle('Sincronización'),
+          _buildSyncButton(),
+          const SizedBox(height: 32),
+          _buildLogoutButton(),
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileHeader(AuthProvider authProvider) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 32),
+      decoration: const BoxDecoration(
+        color: AppColors.surfaceDark,
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 100,
+            height: 100,
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: AppColors.primary,
+                width: 3,
+              ),
+            ),
+            child: const Icon(
+              Icons.person,
+              size: 50,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            authProvider.userName ?? 'Nombre no disponible',
+            style: context.textTheme.headlineMedium,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            authProvider.userLogin ?? 'Login no disponible',
+            style: context.textTheme.bodyLarge?.copyWith(
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Text(
+        title.toUpperCase(),
+        style: context.textTheme.labelMedium?.copyWith(
+          color: AppColors.primary,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoCard(List<Widget> children) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceDark,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(children: children),
+    );
+  }
+
+  Widget _buildInfoTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      leading: Icon(icon, color: AppColors.textSecondary, size: 24),
+      title: Text(
+        title,
+        style: context.textTheme.bodySmall,
+      ),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Text(
+          subtitle,
+          style: context.textTheme.titleMedium,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSyncButton() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      child: Material(
+        color: AppColors.surfaceDark,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: () async {
+            final provider = context.read<ClientesProvider>();
+            await provider.syncClientes();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Sincronización iniciada'),
+                  backgroundColor: AppColors.primary,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
+          },
+          borderRadius: BorderRadius.circular(8),
           child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            child: Row(
               children: [
-                const CircleAvatar(
-                  radius: 50,
-                  child: Icon(Icons.person, size: 50),
+                const Icon(Icons.sync, color: AppColors.textSecondary, size: 24),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Sincronizar datos',
+                        style: context.textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Actualizar clientes desde el servidor',
+                        style: context.textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  authProvider.userName ?? 'Nombre no disponible',
-                  style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  authProvider.userLogin ?? 'Login no disponible',
-                  style: theme.textTheme.titleMedium,
-                ),
+                const Icon(Icons.chevron_right, color: AppColors.textSecondary),
               ],
             ),
           ),
         ),
-        const SizedBox(height: 24),
+      ),
+    );
+  }
 
-        _buildSectionTitle(context, 'Detalles de la Conexión'),
-        Card(
-          elevation: 2,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          child: Column(
-            children: [
-              _buildInfoTile(
-                icon: Icons.cloud_queue,
-                title: 'Servidor',
-                subtitle: authProvider.serverUrl ?? 'No disponible',
-              ),
-              const Divider(height: 1),
-               _buildInfoTile(
-                icon: Icons.storage,
-                title: 'Base de Datos',
-                subtitle: authProvider.dbName ?? 'No disponible',
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 32),
-
-        ElevatedButton.icon(
+  Widget _buildLogoutButton() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: SizedBox(
+        width: double.infinity,
+        height: 50,
+        child: ElevatedButton.icon(
           icon: const Icon(Icons.logout),
-          label: const Text('Cerrar Sesión'),
+          label: const Text('CERRAR SESIÓN'),
           onPressed: () {
             showDialog(
               context: context,
               builder: (BuildContext ctx) {
                 return AlertDialog(
-                  title: const Text('Confirmar'),
-                  content: const Text('¿Estás seguro de que quieres cerrar la sesión?'),
+                  backgroundColor: AppColors.surfaceDark,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  title: const Text(
+                    'Cerrar sesión',
+                    style: TextStyle(color: AppColors.textPrimary),
+                  ),
+                  content: const Text(
+                    '¿Estás seguro de que quieres cerrar la sesión?',
+                    style: TextStyle(color: AppColors.textSecondary),
+                  ),
                   actions: [
                     TextButton(
-                      child: const Text('Cancelar'),
+                      child: const Text(
+                        'Cancelar',
+                        style: TextStyle(color: AppColors.textSecondary),
+                      ),
                       onPressed: () => Navigator.of(ctx).pop(),
                     ),
-                    FilledButton(
-                      child: const Text('Cerrar Sesión'),
+                    TextButton(
+                      child: const Text(
+                        'Cerrar sesión',
+                        style: TextStyle(color: AppColors.error),
+                      ),
                       onPressed: () {
                         Navigator.of(ctx).pop();
                         if (!mounted) return;
-                        context.read<AuthProvider>().logout(); 
+                        context.read<AuthProvider>().logout();
                       },
                     ),
                   ],
@@ -2274,42 +1783,18 @@ class _ProfilePageState extends State<ProfilePage> {
             );
           },
           style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+            backgroundColor: AppColors.error,
+            foregroundColor: Colors.white,
           ),
         ),
-      ],
-    );
-  }
-
-  Widget _buildSectionTitle(BuildContext context, String title) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4, bottom: 8),
-      child: Text(
-        title,
-        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
       ),
     );
   }
+}```
+---
 
-  Widget _buildInfoTile({required IconData icon, required String title, required String subtitle}) {
-    final theme = Theme.of(context);
-    return ListTile(
-      leading: Icon(icon, color: theme.colorScheme.onSurfaceVariant),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-      subtitle: Text(subtitle, style: theme.textTheme.bodyLarge),
-    );
-  }
-}
-
---------------------------------
 ### FILE: lib/providers/auth_provider.dart
---------------------------------
-
+```dart
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -2334,16 +1819,31 @@ class AuthProvider with ChangeNotifier {
 
   AuthProvider({required this.sharedPreferences});
 
+  /// Intenta hacer login con las credenciales proporcionadas
   Future<bool> login(String url, String db, String email, String password) async {
     try {
-      final service = OdooService(serverUrl: url, dbName: db);
-      await service.authenticate(email, password);
+      // Limpiar URL de espacios en blanco
+      final cleanUrl = url.trim();
+      final cleanDb = db.trim();
+      final cleanEmail = email.trim();
+      
+      // Validaciones básicas
+      if (cleanUrl.isEmpty || cleanDb.isEmpty || cleanEmail.isEmpty || password.isEmpty) {
+        throw Exception('Todos los campos son requeridos');
+      }
+      
+      final service = OdooService(serverUrl: cleanUrl, dbName: cleanDb);
+      await service.authenticate(cleanEmail, password);
 
       if (service.isUserLoggedIn) {
         _odooService = service;
         await _saveSession();
         notifyListeners();
         _authChangeController.add(true);
+        
+        if (kDebugMode) {
+          print('✅ Login exitoso para ${service.userName}');
+        }
         return true;
       } else {
         _odooService = null;
@@ -2351,55 +1851,111 @@ class AuthProvider with ChangeNotifier {
       }
     } catch (e) {
       if (kDebugMode) {
-        print('Error during login: $e');
+        print('❌ Error durante login: $e');
       }
+      _odooService = null;
       rethrow;
     }
   }
 
+  /// Guarda la sesión actual en SharedPreferences
   Future<void> _saveSession() async {
-    if (_odooService == null) return;
+    if (_odooService == null || !_odooService!.isUserLoggedIn) return;
+    
     final service = _odooService!;
-    await sharedPreferences.setString('odoo_url', service.url);
-    await sharedPreferences.setString('odoo_db', service.dbName);
-    await sharedPreferences.setString('odoo_session_id', service.sessionId!);
-    await sharedPreferences.setInt('odoo_uid', service.uid!);
-    await sharedPreferences.setString('odoo_user_name', service.userName!);
-    await sharedPreferences.setString('odoo_user_login', service.userLogin!);
+    
+    try {
+      await Future.wait([
+        sharedPreferences.setString('odoo_url', service.url),
+        sharedPreferences.setString('odoo_db', service.dbName),
+        sharedPreferences.setString('odoo_session_id', service.sessionId!),
+        sharedPreferences.setInt('odoo_uid', service.uid!),
+        sharedPreferences.setString('odoo_user_name', service.userName!),
+        sharedPreferences.setString('odoo_user_login', service.userLogin!),
+      ]);
+      
+      if (kDebugMode) {
+        print('💾 Sesión guardada exitosamente');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error al guardar sesión: $e');
+      }
+    }
   }
 
+  /// Cierra la sesión actual
   Future<void> logout() async {
-    _odooService?.dispose();
-    _odooService = null;
-    
-    await sharedPreferences.clear();
-    
-    notifyListeners();
-    _authChangeController.add(false);
+    try {
+      _odooService?.dispose();
+      _odooService = null;
+      
+      await sharedPreferences.clear();
+      
+      notifyListeners();
+      _authChangeController.add(false);
+      
+      if (kDebugMode) {
+        print('👋 Sesión cerrada exitosamente');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error al cerrar sesión: $e');
+      }
+    }
   }
 
+  /// Intenta restaurar la sesión guardada automáticamente
   Future<void> tryAutoLogin() async {
-    if (_autoLoginAttempted) return;
+    if (_autoLoginAttempted) {
+      if (kDebugMode) {
+        print('⚠️ Auto-login ya fue intentado');
+      }
+      return;
+    }
+    
     _autoLoginAttempted = true;
 
-    final url = sharedPreferences.getString('odoo_url');
-    final db = sharedPreferences.getString('odoo_db');
-    final sessionId = sharedPreferences.getString('odoo_session_id');
-    final uid = sharedPreferences.getInt('odoo_uid');
-    final userName = sharedPreferences.getString('odoo_user_name');
-    final userLogin = sharedPreferences.getString('odoo_user_login');
+    try {
+      final url = sharedPreferences.getString('odoo_url');
+      final db = sharedPreferences.getString('odoo_db');
+      final sessionId = sharedPreferences.getString('odoo_session_id');
+      final uid = sharedPreferences.getInt('odoo_uid');
+      final userName = sharedPreferences.getString('odoo_user_name');
+      final userLogin = sharedPreferences.getString('odoo_user_login');
 
-    if (url != null && db != null && sessionId != null && uid != null && userName != null && userLogin != null) {
-      try {
+      // Verificar que todos los datos necesarios estén presentes
+      if (url != null && 
+          db != null && 
+          sessionId != null && 
+          uid != null && 
+          userName != null && 
+          userLogin != null) {
+        
+        if (kDebugMode) {
+          print('🔄 Intentando restaurar sesión para $userName...');
+        }
+        
         final service = OdooService(serverUrl: url, dbName: db);
         service.restoreSession(sessionId, uid, userName, userLogin);
 
         _odooService = service;
         notifyListeners();
         _authChangeController.add(true);
-      } catch (e) {
-        await logout();
+        
+        if (kDebugMode) {
+          print('✅ Sesión restaurada exitosamente');
+        }
+      } else {
+        if (kDebugMode) {
+          print('ℹ️ No hay sesión guardada para restaurar');
+        }
       }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error al restaurar sesión: $e');
+      }
+      await logout();
     }
   }
 
@@ -2409,12 +1965,11 @@ class AuthProvider with ChangeNotifier {
     _odooService?.dispose();
     super.dispose();
   }
-}
+}```
+---
 
---------------------------------
 ### FILE: lib/providers/clientes_provider.dart
---------------------------------
-
+```dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:myapp/data/clientes_repository.dart';
@@ -2446,6 +2001,7 @@ class ClientesProvider with ChangeNotifier {
         _clearData();
       }
     });
+    
     if (_authProvider.isLoggedIn) {
       _initialize();
     }
@@ -2475,16 +2031,19 @@ class ClientesProvider with ChangeNotifier {
 
   void _listenToClientesStream() {
     _clientesSubscription?.cancel();
-    _clientesSubscription = _repository.watchClientes().listen((clientes) {
-      _clientes = clientes;
-      if (!_isLoading) {
+    _clientesSubscription = _repository.watchClientes().listen(
+      (clientes) {
+        _clientes = clientes;
+        if (!_isLoading) {
+          notifyListeners();
+        }
+      },
+      onError: (e) {
+        _error = 'Error al leer la base de datos: $e';
+        _isLoading = false;
         notifyListeners();
-      }
-    }, onError: (e) {
-      _error = 'Error al leer la base de datos: $e';
-      _isLoading = false;
-      notifyListeners();
-    });
+      },
+    );
   }
 
   void _listenToProgressStream() {
@@ -2492,52 +2051,36 @@ class ClientesProvider with ChangeNotifier {
     _progressSubscription = _repository.progressStream.listen((message) {
       _syncMessage = message;
       final isFinalMessage = message.startsWith('✅') || message.startsWith('❌') || message.startsWith('👍');
+      
       if (isFinalMessage) {
         _isLoading = false;
-        if (message.startsWith('❌')) {
-          _error = message;
-        }
+        _error = message.startsWith('❌') ? message : null;
       } else {
         _isLoading = true;
         _error = null;
       }
+      
       notifyListeners();
     });
   }
 
   Future<void> syncClientes() async {
-    if (_isLoading || !_authProvider.isLoggedIn) return;
+    if (_isLoading) return;
     await _repository.syncClientes();
   }
 
   Future<void> createCliente(String name, String email, String phone, String city) async {
-    try {
-      await _repository.createCliente(name, email, phone, city);
-    } catch (e) {
-      _error = e.toString();
-      notifyListeners();
-      rethrow;
-    }
+    if (name.trim().isEmpty) throw Exception('El nombre es obligatorio');
+    await _repository.createCliente(name.trim(), email.trim(), phone.trim(), city.trim());
   }
 
   Future<void> updateCliente(Cliente cliente) async {
-    try {
-      await _repository.updateCliente(cliente);
-    } catch (e) {
-      _error = e.toString();
-      notifyListeners();
-      rethrow;
-    }
+    if (cliente.name.trim().isEmpty) throw Exception('El nombre es obligatorio');
+    await _repository.updateCliente(cliente);
   }
 
   Future<void> deleteCliente(Cliente cliente) async {
-    try {
-      await _repository.deleteCliente(cliente);
-    } catch (e) {
-      _error = e.toString();
-      notifyListeners();
-      rethrow;
-    }
+    await _repository.deleteCliente(cliente);
   }
 
   void _clearData() {
@@ -2559,10 +2102,11 @@ class ClientesProvider with ChangeNotifier {
     super.dispose();
   }
 }
+```
+---
 
---------------------------------
 ### FILE: lib/providers/navigation_provider.dart
---------------------------------
+```dart
 
 import 'package:flutter/material.dart';
 
@@ -2634,10 +2178,11 @@ class NavigationProvider with ChangeNotifier {
     });
   }
 }
+```
+---
 
---------------------------------
 ### FILE: lib/providers/theme_provider.dart
---------------------------------
+```dart
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -2677,123 +2222,447 @@ class ThemeProvider with ChangeNotifier {
     notifyListeners();
   }
 }
+```
+---
 
---------------------------------
 ### FILE: lib/theme/app_theme.dart
---------------------------------
-
+```dart
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
-class AppTheme {
-  static const Color _primarySeedColor = Colors.redAccent;
-
-  static final TextTheme _appTextTheme = TextTheme(
-      displayLarge: GoogleFonts.oswald(fontSize: 57, fontWeight: FontWeight.bold),
-      titleLarge: GoogleFonts.roboto(fontSize: 22, fontWeight: FontWeight.w500),
-      bodyMedium: GoogleFonts.openSans(fontSize: 14),
-    );
-
-  static final ThemeData lightTheme = ThemeData(
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: _primarySeedColor,
-        brightness: Brightness.light,
-      ),
-      textTheme: _appTextTheme,
-      appBarTheme: AppBarTheme(
-        backgroundColor: _primarySeedColor,
-        foregroundColor: Colors.white,
-        titleTextStyle: GoogleFonts.oswald(fontSize: 24, fontWeight: FontWeight.bold),
-      ),
-    );
-
-  static final ThemeData darkTheme = ThemeData.dark().copyWith(
-      scaffoldBackgroundColor: const Color(0xFF121212),
-      
-      colorScheme: const ColorScheme.dark(
-        primary: Color(0xFFF27E5F),
-        onPrimary: Colors.white,
-        surface: Color(0xFF1C1C1C),
-        onSurface: Color(0xFFE8E8E8),
-      ),
-      
-      // Para los inputs
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: const Color(0xFF1C1C1C),
-        border: InputBorder.none,
-        enabledBorder: const UnderlineInputBorder(
-          borderSide: BorderSide(
-            color: Color(0x80F27E5F), // Corrected: withOpacity removed
-            width: 2,
-          ),
-        ),
-        focusedBorder: const UnderlineInputBorder(
-          borderSide: BorderSide(
-            color: Color(0xFFF27E5F),
-            width: 2,
-          ),
-        ),
-      ),
-    );
+/// Colores principales de Tumburú
+class AppColors {
+  // Prevenir instanciación
+  AppColors._();
+  
+  // Colores principales - Coral/Salmón
+  static const Color primary = Color(0xFFF27E5F);
+  static const Color primaryLight = Color(0xFFFF9A7F);
+  static const Color primaryDark = Color(0xFFE66B4D);
+  
+  // Fondos oscuros
+  static const Color backgroundDark = Color(0xFF111B21);
+  static const Color surfaceDark = Color(0xFF1F2C34);
+  static const Color cardDark = Color(0xFF2A3942);
+  
+  // Textos
+  static const Color textPrimary = Color(0xFFE9EDEF);
+  static const Color textSecondary = Color(0xFF8696A0);
+  static const Color textTertiary = Color(0xFF667781);
+  
+  // Estados
+  static const Color success = Color(0xFF00A884);
+  static const Color error = Color(0xFFDC4E41);
+  static const Color warning = Color(0xFFFFAB00);
+  static const Color info = Color(0xFF0088CC);
+  
+  // Bordes y divisores
+  static const Color border = Color(0xFF2A3942);
+  static const Color divider = Color(0xFF1F2C34);
+  
+  // Avatares (colores variados para las iniciales)
+  static const List<Color> avatarColors = [
+    Color(0xFFF27E5F), // Coral
+    Color(0xFF00A884), // Verde
+    Color(0xFF0088CC), // Azul
+    Color(0xFFAA66CC), // Morado
+    Color(0xFFFF8A65), // Naranja
+    Color(0xFF4DB6AC), // Teal
+    Color(0xFFF06292), // Rosa
+    Color(0xFF7E57C2), // Violeta
+  ];
 }
 
---------------------------------
-### FILE: lib/widgets/app_drawer.dart
---------------------------------
+/// Configuración de tema de la aplicación
+class AppTheme {
+  AppTheme._();
+  
+  /// Obtiene un color de avatar basado en un texto
+  static Color getAvatarColor(String text) {
+    if (text.isEmpty) return AppColors.avatarColors[0];
+    final hash = text.hashCode.abs();
+    return AppColors.avatarColors[hash % AppColors.avatarColors.length];
+  }
+  
+  /// Tema claro de la aplicación
+  static ThemeData get lightTheme {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      primaryColor: AppColors.primary,
+      colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primary),
+      scaffoldBackgroundColor: Colors.grey[100],
+       appBarTheme: const AppBarTheme(
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        elevation: 4,
+        centerTitle: true,
+        titleTextStyle: TextStyle(
+          color: Colors.white,
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(25),
+          ),
+        ),
+      ),
+    );
+  }
 
+
+  /// Tema oscuro de la aplicación
+  static ThemeData get darkTheme {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      
+      // Esquema de colores
+      colorScheme: const ColorScheme.dark(
+        primary: AppColors.primary,
+        primaryContainer: AppColors.primaryDark,
+        secondary: AppColors.primaryLight,
+        surface: AppColors.surfaceDark,
+        surfaceContainer: AppColors.cardDark,
+        error: AppColors.error,
+        onPrimary: Colors.white,
+        onSurface: AppColors.textPrimary,
+        onSurfaceVariant: AppColors.textSecondary,
+        outline: AppColors.border,
+      ),
+      
+      // Colores de fondo
+      scaffoldBackgroundColor: AppColors.backgroundDark,
+      
+      // AppBar
+      appBarTheme: const AppBarTheme(
+        backgroundColor: AppColors.surfaceDark,
+        foregroundColor: AppColors.textPrimary,
+        elevation: 0,
+        centerTitle: false,
+        titleTextStyle: TextStyle(
+          color: AppColors.textPrimary,
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.15,
+        ),
+        iconTheme: IconThemeData(
+          color: AppColors.textPrimary,
+          size: 24,
+        ),
+      ),
+      
+      // Cards
+      cardTheme: CardThemeData(
+        color: AppColors.surfaceDark,
+        elevation: 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      ),
+      
+      // Botones elevados
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(25),
+          ),
+          textStyle: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.5,
+          ),
+        ),
+      ),
+      
+      // Botones de texto
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: AppColors.primary,
+          textStyle: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+      
+      // Floating Action Button
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        elevation: 4,
+        shape: CircleBorder(),
+      ),
+      
+      // Campos de texto
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: AppColors.surfaceDark,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(
+            color: AppColors.primary,
+            width: 2,
+          ),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(
+            color: AppColors.error,
+            width: 1,
+          ),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(
+            color: AppColors.error,
+            width: 2,
+          ),
+        ),
+        labelStyle: const TextStyle(
+          color: AppColors.textSecondary,
+          fontSize: 14,
+        ),
+        hintStyle: const TextStyle(
+          color: AppColors.textTertiary,
+          fontSize: 14,
+        ),
+        prefixIconColor: AppColors.textSecondary,
+        suffixIconColor: AppColors.textSecondary,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 16,
+        ),
+      ),
+      
+      // Diálogos
+      dialogTheme: DialogThemeData(
+        backgroundColor: AppColors.surfaceDark,
+        elevation: 8,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        titleTextStyle: const TextStyle(
+          color: AppColors.textPrimary,
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+        ),
+        contentTextStyle: const TextStyle(
+          color: AppColors.textSecondary,
+          fontSize: 16,
+        ),
+      ),
+      
+      // Divisores
+      dividerTheme: const DividerThemeData(
+        color: AppColors.divider,
+        thickness: 1,
+        space: 1,
+      ),
+      
+      // SnackBars
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: AppColors.surfaceDark,
+        contentTextStyle: const TextStyle(
+          color: AppColors.textPrimary,
+          fontSize: 14,
+        ),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
+      
+      // ListTiles
+      listTileTheme: const ListTileThemeData(
+        iconColor: AppColors.textSecondary,
+        textColor: AppColors.textPrimary,
+        tileColor: Colors.transparent,
+        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      ),
+      
+      // Iconos
+      iconTheme: const IconThemeData(
+        color: AppColors.textSecondary,
+        size: 24,
+      ),
+      
+      // Indicadores de progreso
+      progressIndicatorTheme: const ProgressIndicatorThemeData(
+        color: AppColors.primary,
+        linearTrackColor: AppColors.border,
+        circularTrackColor: AppColors.border,
+      ),
+      
+      // Switches
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return AppColors.primary;
+          }
+          return AppColors.textSecondary;
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return AppColors.primary.withAlpha(128);
+          }
+          return AppColors.border;
+        }),
+      ),
+      
+      // Tipografía
+      textTheme: const TextTheme(
+        // Títulos grandes
+        displayLarge: TextStyle(
+          fontSize: 32,
+          fontWeight: FontWeight.w700,
+          color: AppColors.textPrimary,
+          letterSpacing: 0,
+        ),
+        displayMedium: TextStyle(
+          fontSize: 28,
+          fontWeight: FontWeight.w600,
+          color: AppColors.textPrimary,
+        ),
+        displaySmall: TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.w600,
+          color: AppColors.textPrimary,
+        ),
+        
+        // Títulos
+        headlineLarge: TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.w600,
+          color: AppColors.textPrimary,
+        ),
+        headlineMedium: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+          color: AppColors.textPrimary,
+        ),
+        headlineSmall: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+          color: AppColors.textPrimary,
+        ),
+        
+        // Títulos de sección
+        titleLarge: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+          color: AppColors.textPrimary,
+          letterSpacing: 0.15,
+        ),
+        titleMedium: TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+          color: AppColors.textPrimary,
+          letterSpacing: 0.15,
+        ),
+        titleSmall: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          color: AppColors.textPrimary,
+          letterSpacing: 0.1,
+        ),
+        
+        // Cuerpo de texto
+        bodyLarge: TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w400,
+          color: AppColors.textPrimary,
+          letterSpacing: 0.15,
+        ),
+        bodyMedium: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w400,
+          color: AppColors.textPrimary,
+          letterSpacing: 0.25,
+        ),
+        bodySmall: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w400,
+          color: AppColors.textSecondary,
+          letterSpacing: 0.4,
+        ),
+        
+        // Etiquetas
+        labelLarge: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          color: AppColors.textPrimary,
+          letterSpacing: 0.1,
+        ),
+        labelMedium: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: AppColors.textSecondary,
+          letterSpacing: 0.5,
+        ),
+        labelSmall: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: AppColors.textTertiary,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+}
+
+/// Extensiones de tema para facilitar el acceso a colores
+extension ThemeExtension on BuildContext {
+  ThemeData get theme => Theme.of(this);
+  ColorScheme get colorScheme => Theme.of(this).colorScheme;
+  TextTheme get textTheme => Theme.of(this).textTheme;
+}
+```
+---
+
+### FILE: lib/widgets/app_drawer.dart
+```dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/navigation_provider.dart';
-import '../providers/theme_provider.dart';
 import '../providers/auth_provider.dart';
+import '../theme/app_theme.dart';
 
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // Leemos los providers una sola vez al inicio del build
     final authProvider = context.watch<AuthProvider>();
     final navigationProvider = context.read<NavigationProvider>();
-    final themeProvider = context.read<ThemeProvider>();
-    final theme = Theme.of(context);
 
     return Drawer(
+      backgroundColor: AppColors.backgroundDark,
       child: Column(
         children: <Widget>[
           Expanded(
             child: ListView(
               padding: EdgeInsets.zero,
               children: <Widget>[
-                UserAccountsDrawerHeader(
-                  accountName: Text(
-                    authProvider.userName ?? 'Usuario',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.onPrimary,
-                    )
-                  ),
-                  accountEmail: Text(
-                    authProvider.userLogin ?? 'email@example.com',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onPrimary,
-                    )
-                  ),
-                  currentAccountPicture: CircleAvatar(
-                    backgroundColor: theme.colorScheme.onPrimary,
-                    child: Icon(
-                      Icons.person,
-                      size: 40,
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-                
+                _buildDrawerHeader(authProvider),
+                const SizedBox(height: 8),
                 _buildDrawerItem(
                   context: context,
                   icon: Icons.people,
@@ -2801,7 +2670,6 @@ class AppDrawer extends StatelessWidget {
                   page: AppPage.clientes,
                   isSelected: navigationProvider.currentPage == AppPage.clientes,
                 ),
-
                 _buildDrawerItem(
                   context: context,
                   icon: Icons.account_circle,
@@ -2812,21 +2680,58 @@ class AppDrawer extends StatelessWidget {
               ],
             ),
           ),
-          const Divider(),
-          ListTile(
-            leading: Icon(themeProvider.themeMode == ThemeMode.dark ? Icons.light_mode : Icons.dark_mode),
-            title: const Text('Cambiar Tema'),
-            onTap: () {
-              themeProvider.toggleTheme();
-            },
-          ),
-          const SizedBox(height: 10)
+          const Divider(color: AppColors.divider),
+          _buildBottomActions(context),
         ],
       ),
     );
   }
 
-  // Widget helper para crear los elementos del menú
+  Widget _buildDrawerHeader(AuthProvider authProvider) {
+    return Container(
+      padding: const EdgeInsets.only(top: 60, left: 16, right: 16, bottom: 20),
+      decoration: const BoxDecoration(
+        color: AppColors.surfaceDark,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 70,
+            height: 70,
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.primary, width: 2),
+            ),
+            child: const Icon(
+              Icons.person,
+              size: 40,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            authProvider.userName ?? 'Usuario',
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            authProvider.userLogin ?? 'email@example.com',
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 14,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDrawerItem({
     required BuildContext context,
     required IconData icon,
@@ -2834,28 +2739,66 @@ class AppDrawer extends StatelessWidget {
     required AppPage page,
     required bool isSelected,
   }) {
-    final theme = Theme.of(context);
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(
-        title,
-        style: theme.textTheme.titleMedium?.copyWith(
-          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-        ),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: isSelected ? AppColors.surfaceDark : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
       ),
-      onTap: () {
-        context.read<NavigationProvider>().changePage(page);
-        Navigator.pop(context); // Cierra el drawer
-      },
-      selected: isSelected,
-      selectedTileColor: theme.colorScheme.primary.withAlpha(26),
+      child: ListTile(
+        leading: Icon(
+          icon,
+          color: isSelected ? AppColors.primary : AppColors.textSecondary,
+          size: 24,
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            color: isSelected ? AppColors.primary : AppColors.textPrimary,
+            fontSize: 16,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+          ),
+        ),
+        onTap: () {
+          context.read<NavigationProvider>().changePage(page);
+          Navigator.pop(context);
+        },
+      ),
     );
   }
-}
 
---------------------------------
+  Widget _buildBottomActions(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      child: Column(
+        children: [
+          ListTile(
+            leading: const Icon(
+              Icons.settings,
+              color: AppColors.textSecondary,
+              size: 24,
+            ),
+            title: const Text(
+              'Configuración',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 16,
+              ),
+            ),
+            onTap: () {
+              // Implementar configuración
+            },
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}```
+---
+
 ### FILE: lib/widgets/cliente_list_item.dart
---------------------------------
+```dart
 
 import 'package:flutter/material.dart';
 import '../data/local/app_database.dart';
@@ -2905,17 +2848,18 @@ class ClienteListItem extends StatelessWidget {
     );
   }
 }
+```
+---
 
---------------------------------
 ### FILE: lib/widgets/main_scaffold.dart
---------------------------------
-
+```dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:myapp/pages/cliente_edit_page.dart';
 import '../providers/navigation_provider.dart';
 import '../pages/clientes_page.dart';
 import '../pages/profile_page.dart';
+import '../theme/app_theme.dart';
 import 'app_drawer.dart';
 
 class MainScaffold extends StatefulWidget {
@@ -2939,7 +2883,7 @@ class _MainScaffoldState extends State<MainScaffold> {
       case AppPage.clientes:
         return 'Clientes';
       case AppPage.perfil:
-        return 'Mi Perfil';
+        return 'Perfil';
     }
   }
 
@@ -2954,13 +2898,52 @@ class _MainScaffoldState extends State<MainScaffold> {
 
   AppBar _buildDefaultAppBar(BuildContext context, NavigationProvider provider) {
     return AppBar(
-      title: Text(_getCurrentPageTitle(provider.currentPage)),
+      backgroundColor: AppColors.surfaceDark,
+      elevation: 0,
+      leading: Builder(
+        builder: (context) => IconButton(
+          icon: const Icon(Icons.menu, color: AppColors.textPrimary),
+          onPressed: () => Scaffold.of(context).openDrawer(),
+        ),
+      ),
+      title: Text(
+        _getCurrentPageTitle(provider.currentPage),
+        style: context.textTheme.titleLarge,
+      ),
       actions: [
-        if (provider.currentPage == AppPage.clientes)
+        if (provider.currentPage == AppPage.clientes) ...[
           IconButton(
-            icon: const Icon(Icons.search),
+            icon: const Icon(Icons.search, color: AppColors.textPrimary),
             onPressed: () => provider.startSearch(),
           ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: AppColors.textPrimary),
+            color: AppColors.surfaceDark,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            onSelected: (value) {
+              if (value == 'sync') {
+                // Implementar sincronización manual
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'sync',
+                child: Row(
+                  children: [
+                    Icon(Icons.sync, color: AppColors.textPrimary, size: 20),
+                    SizedBox(width: 12),
+                    Text(
+                      'Sincronizar',
+                      style: TextStyle(color: AppColors.textPrimary),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -2971,8 +2954,10 @@ class _MainScaffoldState extends State<MainScaffold> {
     }
 
     return AppBar(
+      backgroundColor: AppColors.surfaceDark,
+      elevation: 0,
       leading: IconButton(
-        icon: const Icon(Icons.arrow_back),
+        icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
         onPressed: () {
           provider.stopSearch();
           _searchController.clear();
@@ -2981,20 +2966,23 @@ class _MainScaffoldState extends State<MainScaffold> {
       title: TextField(
         controller: _searchController,
         autofocus: true,
+        style: const TextStyle(color: AppColors.textPrimary),
         decoration: const InputDecoration(
           hintText: 'Buscar...',
+          hintStyle: TextStyle(color: AppColors.textSecondary),
           border: InputBorder.none,
         ),
         onChanged: (query) => provider.updateSearchQuery(query),
       ),
       actions: [
-        IconButton(
-          icon: const Icon(Icons.clear),
-          onPressed: () {
-            provider.updateSearchQuery('');
-            _searchController.clear();
-          },
-        ),
+        if (_searchController.text.isNotEmpty)
+          IconButton(
+            icon: const Icon(Icons.clear, color: AppColors.textPrimary),
+            onPressed: () {
+              provider.updateSearchQuery('');
+              _searchController.clear();
+            },
+          ),
       ],
     );
   }
@@ -3007,6 +2995,7 @@ class _MainScaffoldState extends State<MainScaffold> {
         final isSearching = navigationProvider.isSearchActive;
 
         return Scaffold(
+          backgroundColor: AppColors.backgroundDark,
           appBar: isSearching && currentPage == AppPage.clientes
               ? _buildSearchAppBar(context, navigationProvider)
               : _buildDefaultAppBar(context, navigationProvider),
@@ -3016,15 +3005,19 @@ class _MainScaffoldState extends State<MainScaffold> {
               ? FloatingActionButton(
                   onPressed: () {
                     Navigator.of(context).push(
-                      MaterialPageRoute(builder: (ctx) => const ClienteEditPage()),
+                      MaterialPageRoute(
+                        builder: (ctx) => const ClienteEditPage(),
+                      ),
                     );
                   },
-                  tooltip: 'Nuevo Cliente',
-                  child: const Icon(Icons.person_add_alt_1_rounded),
+                  backgroundColor: AppColors.primary,
+                  elevation: 4,
+                  child: const Icon(Icons.person_add, color: Colors.white),
                 )
               : null,
         );
       },
     );
   }
-}
+}```
+---

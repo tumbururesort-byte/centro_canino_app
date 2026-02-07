@@ -20,6 +20,7 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
   late final TextEditingController _emailController;
   late final TextEditingController _phoneController;
   late final TextEditingController _cityController;
+  int? _selectedTarifaId;
 
   bool get _isEditing => widget.cliente != null;
   bool _isSaving = false;
@@ -31,6 +32,7 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
     _emailController = TextEditingController(text: widget.cliente?.email ?? '');
     _phoneController = TextEditingController(text: widget.cliente?.phone ?? '');
     _cityController = TextEditingController(text: widget.cliente?.city ?? '');
+    _selectedTarifaId = widget.cliente?.tarifaId;
   }
 
   @override
@@ -43,9 +45,7 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
   }
 
   Future<void> _saveCliente() async {
-    if (!_formKey.currentState!.validate() || _isSaving) {
-      return;
-    }
+    if (!_formKey.currentState!.validate() || _isSaving) return;
 
     setState(() => _isSaving = true);
 
@@ -60,6 +60,7 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
           email: Value(_emailController.text.trim()),
           phone: Value(_phoneController.text.trim()),
           city: Value(_cityController.text.trim()),
+          tarifaId: Value(_selectedTarifaId),
         );
         await provider.updateCliente(updatedCliente);
       } else {
@@ -68,6 +69,7 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
           _emailController.text.trim(),
           _phoneController.text.trim(),
           _cityController.text.trim(),
+          _selectedTarifaId,
         );
       }
 
@@ -75,24 +77,13 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
         SnackBar(
           content: Text(_isEditing ? 'Cliente actualizado' : 'Cliente creado'),
           backgroundColor: AppColors.primary,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       );
       navigator.pop();
     } catch (e) {
-      scaffoldMessenger.showSnackBar(
-        SnackBar(
-          content: Text('Error: ${e.toString()}'),
-          backgroundColor: AppColors.error,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        ),
-      );
+      scaffoldMessenger.showSnackBar(SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: AppColors.error));
     } finally {
-      if (mounted) {
-        setState(() => _isSaving = false);
-      }
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -100,56 +91,20 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surfaceDark,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        title: const Text(
-          'Eliminar cliente',
-          style: TextStyle(color: AppColors.textPrimary),
-        ),
-        content: const Text(
-          '¿Estás seguro de que quieres eliminar este cliente?',
-          style: TextStyle(color: AppColors.textSecondary),
-        ),
+        title: const Text('Eliminar cliente'),
+        content: const Text('¿Estás seguro?'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text(
-              'Cancelar',
-              style: TextStyle(color: AppColors.textSecondary),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text(
-              'Eliminar',
-              style: TextStyle(color: AppColors.error),
-            ),
-          ),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Eliminar', style: TextStyle(color: AppColors.error))),
         ],
       ),
     );
 
     if (result == true && mounted) {
-      try {
-        await context.read<ClientesProvider>().deleteCliente(widget.cliente!);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Cliente eliminado'),
-              backgroundColor: AppColors.primary,
-            ),
-          );
-          Navigator.of(context).pop();
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error: ${e.toString()}'),
-              backgroundColor: AppColors.error,
-            ),
-          );
-        }
+      await context.read<ClientesProvider>().deleteCliente(widget.cliente!);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cliente eliminado')));
+        Navigator.of(context).pop();
       }
     }
   }
@@ -161,138 +116,38 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
       appBar: AppBar(
         backgroundColor: AppColors.surfaceDark,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text(
-          _isEditing ? 'Editar cliente' : 'Nuevo cliente',
-          style: context.textTheme.titleLarge,
-        ),
+        title: Text(_isEditing ? 'Editar cliente' : 'Nuevo cliente', style: context.textTheme.titleLarge),
         actions: [
-          if (_isEditing)
-            IconButton(
-              icon: const Icon(Icons.delete, color: AppColors.error),
-              onPressed: _deleteCliente,
-            ),
+          if (_isEditing) IconButton(icon: const Icon(Icons.delete, color: AppColors.error), onPressed: _deleteCliente),
         ],
       ),
       body: Form(
         key: _formKey,
         child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
           child: Column(
             children: [
-              const SizedBox(height: 24),
-              _buildProfileHeader(),
-              const SizedBox(height: 32),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Column(
-                  children: [
-                    _buildTextField(
-                      controller: _nameController,
-                      labelText: 'Nombre completo',
-                      icon: Icons.person,
-                      validator: (value) =>
-                          (value == null || value.isEmpty) ? 'Requerido' : null,
-                    ),
-                    const SizedBox(height: 16),
-                    _buildTextField(
-                      controller: _phoneController,
-                      labelText: 'Teléfono',
-                      icon: Icons.phone,
-                      keyboardType: TextInputType.phone,
-                    ),
-                    const SizedBox(height: 16),
-                    _buildTextField(
-                      controller: _emailController,
-                      labelText: 'Correo electrónico',
-                      icon: Icons.email,
-                      keyboardType: TextInputType.emailAddress,
-                    ),
-                    const SizedBox(height: 16),
-                    _buildTextField(
-                      controller: _cityController,
-                      labelText: 'Ciudad',
-                      icon: Icons.location_on,
-                    ),
-                  ],
-                ),
+              _buildTextField(controller: _nameController, labelText: 'Nombre', icon: Icons.person, validator: (v) => v!.isEmpty ? 'Requerido' : null),
+              const SizedBox(height: 16),
+              _buildTextField(controller: _phoneController, labelText: 'Teléfono', icon: Icons.phone, keyboardType: TextInputType.phone),
+              const SizedBox(height: 16),
+              _buildTextField(controller: _emailController, labelText: 'Email', icon: Icons.email, keyboardType: TextInputType.emailAddress),
+              const SizedBox(height: 16),
+              _buildTextField(controller: _cityController, labelText: 'Ciudad', icon: Icons.location_city),
+              const SizedBox(height: 16),
+              Consumer<ClientesProvider>(
+                builder: (context, provider, child) {
+                  return _buildTarifasDropdown(provider.tarifas);
+                },
               ),
-              const SizedBox(height: 100),
             ],
           ),
         ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _isSaving ? null : _saveCliente,
-        backgroundColor: _isSaving
-            ? AppColors.primary.withAlpha(128)
-            : AppColors.primary,
-        elevation: 4,
-        child: _isSaving
-            ? const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  color: Colors.white,
-                ),
-              )
-            : const Icon(Icons.check, size: 28, color: Colors.white),
+        child: _isSaving ? const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation(Colors.white)) : const Icon(Icons.check),
       ),
-    );
-  }
-
-  Widget _buildProfileHeader() {
-    final avatarColor = _isEditing 
-        ? AppTheme.getAvatarColor(widget.cliente!.name)
-        : AppColors.primary;
-    
-    return Column(
-      children: [
-        Container(
-          width: 100,
-          height: 100,
-          decoration: BoxDecoration(
-            color: avatarColor,
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: AppColors.primary,
-              width: 2,
-            ),
-          ),
-          child: Center(
-            child: _isEditing && widget.cliente!.name.isNotEmpty
-                ? Text(
-                    widget.cliente!.name[0].toUpperCase(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 40,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  )
-                : const Icon(
-                    Icons.person,
-                    size: 50,
-                    color: Colors.white,
-                  ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        TextButton(
-          onPressed: () {
-            // Funcionalidad para cambiar foto (futura implementación)
-          },
-          child: Text(
-            'Cambiar foto',
-            style: TextStyle(
-              color: AppColors.primary,
-              fontSize: 14,
-            ),
-          ),
-        ),
-      ],
     );
   }
 
@@ -312,6 +167,34 @@ class _ClienteEditPageState extends State<ClienteEditPage> {
         labelText: labelText,
         prefixIcon: Icon(icon, size: 20),
       ),
+    );
+  }
+
+  Widget _buildTarifasDropdown(List<Tarifa> tarifas) {
+    final items = tarifas.map((tarifa) {
+      return DropdownMenuItem<int>(
+        value: tarifa.odooId,
+        child: Text(tarifa.name, overflow: TextOverflow.ellipsis),
+      );
+    }).toList();
+
+    final selectedIdExists = items.any((item) => item.value == _selectedTarifaId);
+
+    return DropdownButtonFormField<int>(
+      initialValue: selectedIdExists ? _selectedTarifaId : null,
+      items: items,
+      onChanged: (value) => setState(() => _selectedTarifaId = value),
+      decoration: InputDecoration(
+        labelText: 'Tarifa',
+        prefixIcon: const Icon(Icons.local_offer, size: 20),
+        suffixIcon: _selectedTarifaId != null
+            ? IconButton(icon: const Icon(Icons.clear), onPressed: () => setState(() => _selectedTarifaId = null))
+            : null,
+      ),
+      hint: const Text('Seleccionar tarifa...'),
+      isExpanded: true,
+      dropdownColor: AppColors.surfaceDark,
+      style: const TextStyle(color: AppColors.textPrimary),
     );
   }
 }

@@ -1,6 +1,6 @@
-
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../data/remote/odoo_service.dart';
 
@@ -23,16 +23,29 @@ class AuthProvider with ChangeNotifier {
 
   AuthProvider({required this.sharedPreferences});
 
+  /// Intenta hacer login con las credenciales proporcionadas
   Future<bool> login(String url, String db, String email, String password) async {
     try {
-      final service = OdooService(serverUrl: url, dbName: db);
-      await service.authenticate(email, password);
+      final cleanUrl = url.trim();
+      final cleanDb = db.trim();
+      final cleanEmail = email.trim();
+      
+      if (cleanUrl.isEmpty || cleanDb.isEmpty || cleanEmail.isEmpty || password.isEmpty) {
+        throw Exception('Todos los campos son requeridos');
+      }
+      
+      final service = OdooService(serverUrl: cleanUrl, dbName: cleanDb);
+      await service.authenticate(cleanEmail, password);
 
       if (service.isUserLoggedIn) {
         _odooService = service;
         await _saveSession();
         notifyListeners();
         _authChangeController.add(true);
+        
+        if (kDebugMode) {
+          print('✅ Login exitoso para ${service.userName}');
+        }
         return true;
       } else {
         _odooService = null;
@@ -40,55 +53,104 @@ class AuthProvider with ChangeNotifier {
       }
     } catch (e) {
       if (kDebugMode) {
-        print('Error during login: $e');
+        print('❌ Error durante login: $e');
       }
+      _odooService = null;
       rethrow;
     }
   }
 
+  /// Guarda la sesión actual en SharedPreferences
   Future<void> _saveSession() async {
-    if (_odooService == null) return;
+    if (_odooService == null || !_odooService!.isUserLoggedIn) return;
+    
     final service = _odooService!;
-    await sharedPreferences.setString('odoo_url', service.url);
-    await sharedPreferences.setString('odoo_db', service.dbName);
-    await sharedPreferences.setString('odoo_session_id', service.sessionId!);
-    await sharedPreferences.setInt('odoo_uid', service.uid!);
-    await sharedPreferences.setString('odoo_user_name', service.userName!);
-    await sharedPreferences.setString('odoo_user_login', service.userLogin!);
+    
+    try {
+      await Future.wait([
+        sharedPreferences.setString('odoo_url', service.url),
+        sharedPreferences.setString('odoo_db', service.dbName),
+        sharedPreferences.setString('odoo_session_id', service.sessionId!),
+        sharedPreferences.setInt('odoo_uid', service.uid!),
+        sharedPreferences.setString('odoo_user_name', service.userName!),
+        sharedPreferences.setString('odoo_user_login', service.userLogin!),
+      ]);
+      
+      if (kDebugMode) {
+        print('💾 Sesión guardada exitosamente');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error al guardar sesión: $e');
+      }
+    }
   }
 
+  /// Cierra la sesión actual
   Future<void> logout() async {
-    _odooService?.dispose();
-    _odooService = null;
-    
-    await sharedPreferences.clear();
-    
-    notifyListeners();
-    _authChangeController.add(false);
+    try {
+      _odooService?.dispose();
+      _odooService = null;
+      
+      await sharedPreferences.clear();
+      
+      notifyListeners();
+      _authChangeController.add(false);
+      
+      if (kDebugMode) {
+        print('👋 Sesión cerrada exitosamente');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error al cerrar sesión: $e');
+      }
+    }
   }
 
+  /// Intenta restaurar la sesión guardada automáticamente
   Future<void> tryAutoLogin() async {
     if (_autoLoginAttempted) return;
     _autoLoginAttempted = true;
 
-    final url = sharedPreferences.getString('odoo_url');
-    final db = sharedPreferences.getString('odoo_db');
-    final sessionId = sharedPreferences.getString('odoo_session_id');
-    final uid = sharedPreferences.getInt('odoo_uid');
-    final userName = sharedPreferences.getString('odoo_user_name');
-    final userLogin = sharedPreferences.getString('odoo_user_login');
+    try {
+      final url = sharedPreferences.getString('odoo_url');
+      final db = sharedPreferences.getString('odoo_db');
+      final sessionId = sharedPreferences.getString('odoo_session_id');
+      final uid = sharedPreferences.getInt('odoo_uid');
+      final userName = sharedPreferences.getString('odoo_user_name');
+      final userLogin = sharedPreferences.getString('odoo_user_login');
 
-    if (url != null && db != null && sessionId != null && uid != null && userName != null && userLogin != null) {
-      try {
+      if (url != null && 
+          db != null && 
+          sessionId != null && 
+          uid != null && 
+          userName != null && 
+          userLogin != null) {
+        
         final service = OdooService(serverUrl: url, dbName: db);
         service.restoreSession(sessionId, uid, userName, userLogin);
 
         _odooService = service;
-        notifyListeners();
         _authChangeController.add(true);
-      } catch (e) {
-        await logout();
+
+        // Llamada segura para notificar a los listeners DESPUÉS de que termine el frame.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          notifyListeners();
+        });
+        
+        if (kDebugMode) {
+          print('✅ Sesión restaurada exitosamente');
+        }
+      } else {
+        if (kDebugMode) {
+          print('ℹ️ No hay sesión guardada para restaurar');
+        }
       }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error al restaurar sesión: $e');
+      }
+      await logout();
     }
   }
 

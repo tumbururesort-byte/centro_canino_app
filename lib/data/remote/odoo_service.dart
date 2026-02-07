@@ -16,7 +16,6 @@ class OdooService {
   String get db => dbName;
   String? get sessionId => _sessionId;
   
-  /// Returns true if the user is currently authenticated.
   bool get isUserLoggedIn => uid != null && _sessionId != null;
 
   OdooService({required this.serverUrl, required this.dbName}) {
@@ -79,8 +78,7 @@ class OdooService {
 
           developer.log('✅ Autenticación exitosa para $userName. UID: $uid', name: 'OdooService');
         } else {
-          // Si no hay UID, consideramos la autenticación fallida.
-          _sessionId = null; // Borramos el sessionId si lo hubiera
+          _sessionId = null;
           throw Exception('Credenciales incorrectas o respuesta inesperada.');
         }
       } else {
@@ -134,11 +132,9 @@ class OdooService {
       rethrow;
     }
   }
+
   Future<int> countClientes({DateTime? lastSync}) async {
-    developer.log('🔍 Contando clientes para sincronizar...', name: 'OdooService');
-    List<dynamic> domain = [
-      ['customer_rank', '>', 0]
-    ];
+    List<dynamic> domain = [['customer_rank', '>', 0]];
     if (lastSync != null) {
       final utcDate = lastSync.toUtc().toIso8601String().split('.')[0];
       domain.add(['write_date', '>', utcDate]);
@@ -149,7 +145,6 @@ class OdooService {
         'model': 'res.partner',
         'method': 'search_count',
     });
-    developer.log('✅ Conteo finalizado: $result clientes.', name: 'OdooService');
     return result is int ? result : 0;
   }
 
@@ -158,12 +153,7 @@ class OdooService {
     required int limit,
     required int offset,
   }) async {
-    final syncLog = lastSync != null ? 'modificados desde ${lastSync.toIso8601String()}' : 'TODOS';
-    developer.log('📡 Obteniendo clientes (lote de $limit a partir de $offset) $syncLog...', name: 'OdooService');
-
-    List<dynamic> domain = [
-      ['customer_rank', '>', 0]
-    ];
+    List<dynamic> domain = [['customer_rank', '>', 0]];
     if (lastSync != null) {
       final utcDate = lastSync.toUtc().toIso8601String().split('.')[0];
       domain.add(['write_date', '>', utcDate]);
@@ -171,7 +161,7 @@ class OdooService {
 
     final result = await _executeRpc('/web/dataset/search_read', 'call', {
       'model': 'res.partner',
-      'fields': ['id', 'name', 'email', 'phone', 'mobile', 'city', 'write_date'],
+      'fields': ['id', 'name', 'email', 'phone', 'mobile', 'city', 'write_date', 'property_product_pricelist'],
       'domain': domain,
       'limit': limit,
       'offset': offset,
@@ -180,45 +170,53 @@ class OdooService {
     });
 
     if (result != null && result['records'] is List) {
-      final records = List<Map<String, dynamic>>.from(result['records']);
-      developer.log('✅ ${records.length} clientes recibidos en este lote.', name: 'OdooService');
-      return records;
+      return List<Map<String, dynamic>>.from(result['records']);
+    }
+    return [];
+  }
+
+  Future<List<Map<String, dynamic>>> fetchTarifas() async {
+    developer.log('📡 Obteniendo tarifas...', name: 'OdooService');
+    final result = await _executeRpc('/web/dataset/search_read', 'call', {
+        'model': 'product.pricelist',
+        'fields': ['id', 'name'],
+        'domain': [],
+        'context': {},
+    });
+    if (result != null && result['records'] is List) {
+        final records = List<Map<String, dynamic>>.from(result['records']);
+        developer.log('✅ ${records.length} tarifas recibidas.', name: 'OdooService');
+        return records;
     }
     return [];
   }
 
   Future<int> createCliente(Map<String, dynamic> data) async {
-    developer.log('➕ Creando cliente en Odoo: ${data['name']}', name: 'OdooService');
     final newId = await _executeRpc('/web/dataset/call_kw/res.partner/create', 'call', {
         'args': [data],
         'kwargs': {'context': {}},
         'model': 'res.partner',
         'method': 'create',
     });
-    developer.log('✅ Cliente creado con ID: $newId', name: 'OdooService');
     return newId;
   }
 
   Future<void> updateCliente(int odooId, Map<String, dynamic> data) async {
-    developer.log('✏️ Actualizando cliente Odoo ID: $odooId', name: 'OdooService');
     await _executeRpc('/web/dataset/call_kw/res.partner/write', 'call', {
         'args': [[odooId], data],
         'kwargs': {'context': {}},
         'model': 'res.partner',
         'method': 'write',
     });
-    developer.log('✅ Cliente actualizado.', name: 'OdooService');
   }
 
   Future<void> deleteCliente(int odooId) async {
-    developer.log('🗑️ Eliminando cliente Odoo ID: $odooId', name: 'OdooService');
      await _executeRpc('/web/dataset/call_kw/res.partner/unlink', 'call', {
         'args': [[odooId]],
         'kwargs': {'context': {}},
         'model': 'res.partner',
         'method': 'unlink',
     });
-    developer.log('✅ Cliente eliminado.', name: 'OdooService');
   }
   
   void dispose() {
